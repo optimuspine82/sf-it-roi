@@ -5,9 +5,48 @@ from pathlib import Path
 import datetime
 import plotly.express as px
 
-# --- DATABASE SETUP ---
+# --- CONFIGURATION & AUTHENTICATION ---
 DB_FILE = "portfolio.db"
 
+# TODO: Add the email addresses of your testers to this set.
+ALLOWED_EMAILS = {
+    "jasonmartin@unc.edu",
+    "jill_jemison@unc.edu",
+    "kathy_anderson@unc.edu",
+    "rjlibunao@unc.edu",
+    "edmunds@unc.edu"
+}
+
+def check_authentication():
+    """
+    Returns True if the user is authenticated.
+    Otherwise, displays a login form and returns False.
+    """
+    if 'authenticated' not in st.session_state:
+        st.session_state['authenticated'] = False
+
+    if st.session_state['authenticated']:
+        return True
+
+    st.header("Login")
+    st.write("Please enter an authorized email address to access the application.")
+    
+    with st.form("login_form"):
+        email = st.text_input("Email Address").lower()
+        submitted = st.form_submit_button("Login")
+
+        if submitted:
+            if email in ALLOWED_EMAILS:
+                st.session_state['authenticated'] = True
+                st.session_state['user_email'] = email
+                st.rerun()
+            else:
+                st.error("Access Denied: This email address is not authorized.")
+    
+    return False
+
+
+# --- DATABASE SETUP ---
 def init_db():
     """Initializes the SQLite database and creates/updates tables as needed."""
     try:
@@ -311,7 +350,19 @@ def render_lookup_manager(title, singular_name, table_name):
 
 def main():
     st.set_page_config(layout="wide", page_title="Service Portfolio Manager")
+    
+    if not check_authentication():
+        return  # Stop the app if user is not authenticated
+
     init_db()
+    
+    # --- Sidebar for logged-in user ---
+    st.sidebar.success(f"Logged in as {st.session_state['user_email']}")
+    if st.sidebar.button("Logout"):
+        st.session_state['authenticated'] = False
+        st.session_state.pop('user_email', None)
+        st.rerun()
+
 
     st.title("Service Portfolio Manager")
     st.write("Track providers, applications, and internal IT services to identify overlaps and cost-saving opportunities.")
