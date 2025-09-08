@@ -4,18 +4,10 @@ import pandas as pd
 from pathlib import Path
 import datetime
 import plotly.express as px
+from config import ALLOWED_EMAILS
 
 # --- CONFIGURATION & AUTHENTICATION ---
 DB_FILE = "portfolio.db"
-
-# TODO: Add the email addresses of your testers to this set.
-ALLOWED_EMAILS = {
-    "jasonmartin@unc.edu",
-    "jill_jemison@unc.edu",
-    "kathy_anderson@unc.edu",
-    "rjlibunao@unc.edu",
-    "edmunds@unc.edu"
-}
 
 def check_authentication():
     """
@@ -144,7 +136,8 @@ def init_db():
             "provider_id": "INTEGER REFERENCES providers(id)", "fte_count": "INTEGER",
             "dependencies": "TEXT", "service_owner": "TEXT", "status": "TEXT",
             "sla_level_id": "INTEGER REFERENCES sla_levels(id)",
-            "service_method_id": "INTEGER REFERENCES service_methods(id)"
+            "service_method_id": "INTEGER REFERENCES service_methods(id)",
+            "budget_allocation": "REAL"
         }
         for col, col_type in required_it_services_columns.items():
             if col not in it_services_columns:
@@ -282,7 +275,8 @@ def get_it_services():
         query = """
             SELECT
                 its.id, its.name, p.name as provider, its.status,
-                its.service_owner, its.fte_count, sl.name as sla_level, sm.name as service_method
+                its.service_owner, its.fte_count, sl.name as sla_level, 
+                sm.name as service_method, its.budget_allocation
             FROM it_services its
             LEFT JOIN providers p ON its.provider_id = p.id
             LEFT JOIN sla_levels sl ON its.sla_level_id = sl.id
@@ -299,23 +293,23 @@ def get_it_service_details(service_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_it_service(name, desc, provider_id, fte, deps, owner, status, sla_id, method_id):
+def add_it_service(name, desc, provider_id, fte, deps, owner, status, sla_id, method_id, budget):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("""
-            INSERT INTO it_services (name, description, provider_id, fte_count, dependencies, service_owner, status, sla_level_id, service_method_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (name, desc, provider_id, fte, deps, owner, status, sla_id, method_id))
+            INSERT INTO it_services (name, description, provider_id, fte_count, dependencies, service_owner, status, sla_level_id, service_method_id, budget_allocation)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (name, desc, provider_id, fte, deps, owner, status, sla_id, method_id, budget))
         con.commit()
 
-def update_it_service(service_id, name, desc, provider_id, fte, deps, owner, status, sla_id, method_id):
+def update_it_service(service_id, name, desc, provider_id, fte, deps, owner, status, sla_id, method_id, budget):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("""
             UPDATE it_services
-            SET name=?, description=?, provider_id=?, fte_count=?, dependencies=?, service_owner=?, status=?, sla_level_id=?, service_method_id=?
+            SET name=?, description=?, provider_id=?, fte_count=?, dependencies=?, service_owner=?, status=?, sla_level_id=?, service_method_id=?, budget_allocation=?
             WHERE id = ?
-        """, (name, desc, provider_id, fte, deps, owner, status, sla_id, method_id, service_id))
+        """, (name, desc, provider_id, fte, deps, owner, status, sla_id, method_id, budget, service_id))
         con.commit()
 
 def delete_it_service(service_id):
@@ -415,11 +409,11 @@ def main():
                 notes = st.text_area("Notes", value=provider_details.get('notes') or '', height=150)
                 
                 del_col, save_col = st.columns([1, 6])
-                if save_col.form_submit_button("Save Changes", width='stretch'):
+                if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
                     update_provider_details(provider_to_edit_id, name, contact_person, contact_email, total_fte, budget_amount, notes)
                     st.success(f"Updated details for {name}")
                     st.rerun()
-                if del_col.form_submit_button("DELETE", type="primary"):
+                if del_col.form_submit_button("DELETE"):
                     delete_provider(provider_to_edit_id)
                     st.warning(f"Deleted provider: {provider_details['name']}")
                     st.rerun()
@@ -536,11 +530,11 @@ def main():
                 edit_other_units = st.text_area("Other Business Units Using Service", value=app_details.get('other_units') or '', height=100)
 
                 del_col, save_col = st.columns([1, 6])
-                if save_col.form_submit_button("Save Changes", width='stretch'):
+                if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
                     update_application(app_to_edit_id, edit_provider_id, edit_name, edit_type_id, edit_category_id, edit_annual_cost, str(edit_renewal), edit_integrations, edit_other_units)
                     st.success("Application updated.")
                     st.rerun()
-                if del_col.form_submit_button("DELETE", type="primary"):
+                if del_col.form_submit_button("DELETE"):
                     delete_application(app_to_edit_id)
                     st.warning(f"Deleted application: {app_details['name']}")
                     st.rerun()
@@ -567,6 +561,7 @@ def main():
                 status = st.selectbox("Status", options=["Active", "In Development", "Retired"])
                 service_owner = st.text_input("Service Owner/Lead")
                 fte_count = st.number_input("Dedicated FTEs", min_value=0, step=1)
+                budget_allocation = st.number_input("Budget Allocation ($)", min_value=0.0, format="%.2f")
                 sla_id = st.selectbox("SLA Level", options=[None] + list(sla_options_all.keys()), format_func=lambda x: "None" if x is None else sla_options_all.get(x))
                 method_id = st.selectbox("Service Method", options=[None] + list(method_options_all.keys()), format_func=lambda x: "None" if x is None else method_options_all.get(x))
                 it_service_desc = st.text_area("Description")
@@ -580,7 +575,7 @@ def main():
                         name_to_id_map = {v: k for k, v in provider_options_all.items()}
                         final_provider_id_it = name_to_id_map.get(provider_selection_it)
                     
-                    add_it_service(it_service_name, it_service_desc, final_provider_id_it, fte_count, dependencies, service_owner, status, sla_id, method_id)
+                    add_it_service(it_service_name, it_service_desc, final_provider_id_it, fte_count, dependencies, service_owner, status, sla_id, method_id, budget_allocation)
                     st.success(f"Added service: {it_service_name}")
                     st.rerun()
         
@@ -649,15 +644,16 @@ def main():
 
                 edit_service_owner = st.text_input("Service Owner/Lead", value=it_service_details.get('service_owner') or '')
                 edit_fte_count = st.number_input("Dedicated FTEs", min_value=0, step=1, value=int(it_service_details.get('fte_count') or 0))
+                edit_budget = st.number_input("Budget Allocation ($)", min_value=0.0, format="%.2f", value=float(it_service_details.get('budget_allocation') or 0.0))
                 edit_it_desc = st.text_area("Description", value=it_service_details.get('description') or '')
                 edit_dependencies = st.text_area("Dependencies", value=it_service_details.get('dependencies') or '')
 
                 del_col, save_col = st.columns([1, 6])
-                if save_col.form_submit_button("Save Changes", width='stretch'):
-                    update_it_service(it_service_to_edit_id, edit_it_name, edit_it_desc, edit_provider_id, edit_fte_count, edit_dependencies, edit_service_owner, edit_status, edit_sla_id, edit_method_id)
+                if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
+                    update_it_service(it_service_to_edit_id, edit_it_name, edit_it_desc, edit_provider_id, edit_fte_count, edit_dependencies, edit_service_owner, edit_status, edit_sla_id, edit_method_id, edit_budget)
                     st.success(f"Updated {edit_it_name}")
                     st.rerun()
-                if del_col.form_submit_button("DELETE", type="primary"):
+                if del_col.form_submit_button("DELETE"):
                     delete_it_service(it_service_to_edit_id)
                     st.warning(f"Deleted service: {it_service_details['name']}")
                     st.rerun()
@@ -668,19 +664,23 @@ def main():
         st.header("Dashboard & Recommendations")
         all_apps_df = get_applications()
         all_providers_df = get_providers()
+        all_it_services_df = get_it_services()
         
-        metric_col1, metric_col2, metric_col3 = st.columns(3)
-        total_providers = len(all_providers_df)
-        total_apps = len(all_apps_df)
-        total_annual_cost = all_apps_df['annual_cost'].sum() if 'annual_cost' in all_apps_df.columns else 0.0
+        st.subheader("High-Level Metrics")
+        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
         
-        metric_col1.metric("Total Providers", total_providers)
-        metric_col2.metric("Total Applications", total_apps)
-        metric_col3.metric("Total Annual Cost", f"${total_annual_cost:,.2f}")
+        total_annual_cost = all_apps_df['annual_cost'].sum() if not all_apps_df.empty else 0.0
+        total_it_budget = all_it_services_df['budget_allocation'].sum() if not all_it_services_df.empty else 0.0
+        
+        metric_col1.metric("Total Providers", len(all_providers_df))
+        metric_col2.metric("Total Applications", len(all_apps_df))
+        metric_col3.metric("Total IT Services", len(all_it_services_df))
+        metric_col4.metric("Total Annual Spend/Budget", f"${(total_annual_cost + total_it_budget):,.2f}")
+
 
         if not all_apps_df.empty:
             st.divider()
-            st.subheader("Visual Insights")
+            st.subheader("Application Insights")
 
             chart_col1, chart_col2 = st.columns(2)
 
@@ -702,7 +702,7 @@ def main():
                 apps_by_category.columns = ['category', 'count']
                 fig_app_category = px.bar(apps_by_category, x='category', y='count', title='Application Count by Category')
                 st.plotly_chart(fig_app_category, use_container_width=True)
-
+            
             st.divider()
             st.subheader("Potential Overlaps by Category")
             duplicates = all_apps_df.dropna(subset=['category'])[all_apps_df.dropna(subset=['category']).duplicated(subset=['category'], keep=False)].sort_values(by='category')
@@ -712,7 +712,29 @@ def main():
             else:
                 st.success("No overlapping application categories found.")
         else:
-            st.info("Add applications to generate recommendations and view charts.")
+            st.info("Add applications to see application-specific insights.")
+        
+        if not all_it_services_df.empty:
+            st.divider()
+            st.subheader("IT Service Insights")
+            
+            it_chart_col1, it_chart_col2 = st.columns(2)
+
+            with it_chart_col1:
+                 # IT Chart 1: Budget by Service
+                budget_by_service = all_it_services_df.groupby('name')['budget_allocation'].sum().reset_index()
+                fig_it_budget = px.pie(budget_by_service, names='name', values='budget_allocation', title='Budget Allocation by IT Service')
+                st.plotly_chart(fig_it_budget, use_container_width=True)
+            
+            with it_chart_col2:
+                # IT Chart 2: FTEs by Service
+                fte_by_service = all_it_services_df.groupby('name')['fte_count'].sum().reset_index()
+                fig_it_fte = px.bar(fte_by_service, x='name', y='fte_count', title='Dedicated FTEs by IT Service')
+                st.plotly_chart(fig_it_fte, use_container_width=True)
+
+        else:
+            st.info("Add IT services to see service-specific insights.")
+
 
     # --- SETTINGS TAB ---
     with settings_tab:
