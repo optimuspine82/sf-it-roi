@@ -9,6 +9,15 @@ from config import ALLOWED_EMAILS
 # --- CONFIGURATION & AUTHENTICATION ---
 DB_FILE = "portfolio.db"
 
+# Instructions for each tab, now located directly in the app
+TAB_INSTRUCTIONS = {
+    "IT Units": "Manage the internal IT teams or departments responsible for applications and services. You can add new units, edit their contact and budget information, or delete them here.",
+    "Applications": "Track all software applications, whether they are developed internally or purchased from an external vendor. Link each application to the IT Unit that manages it.",
+    "IT Services": "Manage all internal services provided by your IT Units, such as the Help Desk or Classroom Support. You can track budget, FTEs, and service level details.",
+    "Dashboard": "Get a high-level visual overview of your portfolio. This dashboard highlights total costs, shows spending by vendor, and application distribution by IT Unit.",
+    "Settings": "Configure the dropdown options used throughout the application. Add or remove Vendors, Application Types, Categories, etc., to customize the forms to your needs."
+}
+
 def check_authentication():
     """
     Returns True if the user is authenticated.
@@ -45,110 +54,78 @@ def init_db():
         con = sqlite3.connect(DB_FILE)
         cur = con.cursor()
 
-        # --- Providers Table Setup & Migration ---
-        cur.execute("CREATE TABLE IF NOT EXISTS providers (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)")
-        
-        cur.execute("PRAGMA table_info(providers)")
-        providers_columns = [info[1] for info in cur.fetchall()]
-        if 'other_units' in providers_columns:
-            st.info("Old schema detected. Migrating 'other_units' field from Providers to Applications...")
-            cur.execute("ALTER TABLE providers RENAME TO providers_old")
-            cur.execute("""
-                CREATE TABLE providers (
-                    id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, contact_person TEXT,
-                    contact_email TEXT, notes TEXT, total_fte INTEGER, budget_amount REAL
-                )
-            """)
-            cur.execute("""
-                INSERT INTO providers (id, name, contact_person, contact_email, notes, total_fte, budget_amount)
-                SELECT id, name, contact_person, contact_email, notes, total_fte, budget_amount FROM providers_old
-            """)
-            cur.execute("DROP TABLE providers_old")
-            st.success("Provider schema migration complete.")
+        # --- Migration: providers table to it_units ---
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='providers'")
+        if cur.fetchone():
+            cur.execute("ALTER TABLE providers RENAME TO it_units")
 
-        cur.execute("PRAGMA table_info(providers)")
+        # --- IT Units Table Setup ---
+        cur.execute("CREATE TABLE IF NOT EXISTS it_units (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)")
+        cur.execute("PRAGMA table_info(it_units)")
         existing_columns = [info[1] for info in cur.fetchall()]
-        required_provider_columns = {
+        required_it_unit_columns = {
             "contact_person": "TEXT", "contact_email": "TEXT", "notes": "TEXT",
             "total_fte": "INTEGER", "budget_amount": "REAL"
         }
-        for column_name, column_type in required_provider_columns.items():
+        for column_name, column_type in required_it_unit_columns.items():
             if column_name not in existing_columns:
-                cur.execute(f"ALTER TABLE providers ADD COLUMN {column_name} {column_type}")
+                cur.execute(f"ALTER TABLE it_units ADD COLUMN {column_name} {column_type}")
 
         # --- Lookup Tables ---
+        cur.execute('''CREATE TABLE IF NOT EXISTS vendors (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)''')
         cur.execute('''CREATE TABLE IF NOT EXISTS service_types (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)''')
         cur.execute('''CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)''')
         cur.execute('''CREATE TABLE IF NOT EXISTS sla_levels (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)''')
         cur.execute('''CREATE TABLE IF NOT EXISTS service_methods (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)''')
 
-        # --- RENAME services to applications for migration ---
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='services'")
-        if cur.fetchone():
-            cur.execute("ALTER TABLE services RENAME TO applications")
-            st.success("Migrated database table from 'services' to 'applications'.")
-
         # --- Applications Table Setup & Migration ---
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS applications (
-                id INTEGER PRIMARY KEY, provider_id INTEGER, name TEXT NOT NULL,
-                renewal_date TEXT NOT NULL,
-                FOREIGN KEY (provider_id) REFERENCES providers (id) ON DELETE CASCADE
-            )
-        ''')
+        cur.execute("CREATE TABLE IF NOT EXISTS applications (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
         cur.execute("PRAGMA table_info(applications)")
         app_columns = [info[1] for info in cur.fetchall()]
+        
+        # Migration: provider_id to it_unit_id
+        if 'provider_id' in app_columns:
+            cur.execute("ALTER TABLE applications RENAME COLUMN provider_id TO it_unit_id")
+
         required_app_columns = {
-            "annual_cost": "REAL", "service_type_id": "INTEGER REFERENCES service_types(id)",
-            "category_id": "INTEGER REFERENCES categories(id)", "integrations": "TEXT", "other_units": "TEXT"
+            "it_unit_id": "INTEGER REFERENCES it_units(id)",
+            "vendor_id": "INTEGER REFERENCES vendors(id)",
+            "renewal_date": "TEXT", "annual_cost": "REAL",
+            "service_type_id": "INTEGER REFERENCES service_types(id)",
+            "category_id": "INTEGER REFERENCES categories(id)",
+            "integrations": "TEXT", "other_units": "TEXT"
         }
         for col, col_type in required_app_columns.items():
-            if col not in app_columns:
+            if col not in app_columns and col != 'it_unit_id': # Avoid re-adding renamed column
                 cur.execute(f"ALTER TABLE applications ADD COLUMN {col} {col_type}")
-        
+
         # --- IT Services Table Setup & Migration ---
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS it_services (
-                id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT
-            )
-        ''')
+        cur.execute("CREATE TABLE IF NOT EXISTS it_services (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT)")
         cur.execute("PRAGMA table_info(it_services)")
         it_services_columns = [info[1] for info in cur.fetchall()]
-        if 'sla_details' in it_services_columns: # Migration from old text field
-             # Use a temporary name to avoid conflicts
-            cur.execute("ALTER TABLE it_services RENAME TO it_services_old")
-            cur.execute('''
-                CREATE TABLE it_services (
-                    id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT,
-                    provider_id INTEGER REFERENCES providers(id), fte_count INTEGER,
-                    dependencies TEXT, service_owner TEXT, status TEXT,
-                    sla_level_id INTEGER REFERENCES sla_levels(id),
-                    service_method_id INTEGER REFERENCES service_methods(id)
-                )
-            ''')
-            cur.execute('''
-                INSERT INTO it_services (id, name, description, provider_id, fte_count, dependencies, service_owner, status)
-                SELECT id, name, description, provider_id, fte_count, dependencies, service_owner, status FROM it_services_old
-            ''')
-            cur.execute("DROP TABLE it_services_old")
-
+        
+        # Migration: provider_id to it_unit_id
+        if 'provider_id' in it_services_columns:
+            cur.execute("ALTER TABLE it_services RENAME COLUMN provider_id TO it_unit_id")
+        
         required_it_services_columns = {
-            "provider_id": "INTEGER REFERENCES providers(id)", "fte_count": "INTEGER",
+            "it_unit_id": "INTEGER REFERENCES it_units(id)", "fte_count": "INTEGER",
             "dependencies": "TEXT", "service_owner": "TEXT", "status": "TEXT",
             "sla_level_id": "INTEGER REFERENCES sla_levels(id)",
             "service_method_id": "INTEGER REFERENCES service_methods(id)",
             "budget_allocation": "REAL"
         }
         for col, col_type in required_it_services_columns.items():
-            if col not in it_services_columns:
+            if col not in it_services_columns and col != 'it_unit_id':
                 cur.execute(f"ALTER TABLE it_services ADD COLUMN {col} {col_type}")
 
         con.commit()
     except sqlite3.Error as e:
-        st.error(f"Database error: {e}")
+        st.error(f"Database error during initialization: {e}")
     finally:
         if con:
             con.close()
+
 
 # --- DATABASE HELPER FUNCTIONS ---
 
@@ -156,55 +133,58 @@ def get_connection():
     """Returns a database connection."""
     return sqlite3.connect(DB_FILE)
 
-# Provider Functions
-def get_providers():
+# IT Unit Functions
+def get_it_units():
     with get_connection() as con:
-        return pd.read_sql_query("SELECT id, name FROM providers ORDER BY name", con)
+        return pd.read_sql_query("SELECT id, name FROM it_units ORDER BY name", con)
 
-def get_provider_details(provider_id):
+def get_it_unit_details(unit_id):
     with get_connection() as con:
         con.row_factory = sqlite3.Row
         cur = con.cursor()
-        cur.execute("SELECT * FROM providers WHERE id = ?", (provider_id,))
+        cur.execute("SELECT * FROM it_units WHERE id = ?", (unit_id,))
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_provider(name, contact_person="", contact_email="", total_fte=0, budget_amount=0.0, notes=""):
-    """Adds a new provider if the name doesn't exist, returns the provider's ID."""
+def add_it_unit(name, contact_person="", contact_email="", total_fte=0, budget_amount=0.0, notes=""):
+    """Adds a new IT Unit if the name doesn't exist, returns the unit's ID."""
     with get_connection() as con:
         cur = con.cursor()
-        cur.execute("SELECT id FROM providers WHERE name = ?", (name,))
+        cur.execute("SELECT id FROM it_units WHERE name = ?", (name,))
         existing = cur.fetchone()
         if existing:
-            st.warning(f"Provider '{name}' already exists.")
+            st.warning(f"IT Unit '{name}' already exists.")
             return existing[0]
 
         cur.execute("""
-            INSERT INTO providers (name, contact_person, contact_email, total_fte, budget_amount, notes)
+            INSERT INTO it_units (name, contact_person, contact_email, total_fte, budget_amount, notes)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (name, contact_person, contact_email, total_fte, budget_amount, notes))
         con.commit()
-        st.success(f"Added new provider: {name}")
+        st.success(f"Added new IT Unit: {name}")
         return cur.lastrowid
 
-def update_provider_details(provider_id, name, contact_person, contact_email, total_fte, budget_amount, notes):
+def update_it_unit_details(unit_id, name, contact_person, contact_email, total_fte, budget_amount, notes):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("""
-            UPDATE providers
+            UPDATE it_units
             SET name = ?, contact_person = ?, contact_email = ?, total_fte = ?, budget_amount = ?, notes = ?
             WHERE id = ?
-        """, (name, contact_person, contact_email, total_fte, budget_amount, notes, provider_id))
+        """, (name, contact_person, contact_email, total_fte, budget_amount, notes, unit_id))
         con.commit()
 
-def delete_provider(provider_id):
+def delete_it_unit(unit_id):
     with get_connection() as con:
         cur = con.cursor()
-        cur.execute("DELETE FROM providers WHERE id = ?", (provider_id,))
-        cur.execute("DELETE FROM applications WHERE provider_id = ?", (provider_id,))
+        cur.execute("DELETE FROM it_units WHERE id = ?", (unit_id,))
+        # Also update related items to remove the link
+        cur.execute("UPDATE applications SET it_unit_id = NULL WHERE it_unit_id = ?", (unit_id,))
+        cur.execute("UPDATE it_services SET it_unit_id = NULL WHERE it_unit_id = ?", (unit_id,))
         con.commit()
 
-# Lookup CRUD Functions (Types, Categories, SLAs, Methods)
+
+# Lookup CRUD Functions (Vendors, Types, etc.)
 def get_lookup_data(table_name):
     with get_connection() as con:
         return pd.read_sql_query(f"SELECT * FROM {table_name} ORDER BY name", con)
@@ -226,10 +206,11 @@ def get_applications():
     with get_connection() as con:
         query = """
             SELECT
-                a.id, a.name, p.name as provider, st.name as type, c.name as category,
-                a.annual_cost, a.renewal_date, a.integrations, a.other_units
+                a.id, a.name, iu.name as managing_it_unit, v.name as vendor, 
+                st.name as type, c.name as category, a.annual_cost, a.renewal_date
             FROM applications a
-            JOIN providers p ON a.provider_id = p.id
+            LEFT JOIN it_units iu ON a.it_unit_id = iu.id
+            LEFT JOIN vendors v ON a.vendor_id = v.id
             LEFT JOIN service_types st ON a.service_type_id = st.id
             LEFT JOIN categories c ON a.category_id = c.id
         """
@@ -243,23 +224,23 @@ def get_application_details(app_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_application(provider_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units):
+def add_application(it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute(
-            """INSERT INTO applications (provider_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (provider_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units)
+            """INSERT INTO applications (it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units)
         )
         con.commit()
 
-def update_application(app_id, provider_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units):
+def update_application(app_id, it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute(
-            """UPDATE applications SET provider_id=?, name=?, service_type_id=?, category_id=?, annual_cost=?, renewal_date=?, integrations=?, other_units=?
+            """UPDATE applications SET it_unit_id=?, vendor_id=?, name=?, service_type_id=?, category_id=?, annual_cost=?, renewal_date=?, integrations=?, other_units=?
                WHERE id=?""",
-            (provider_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, app_id)
+            (it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, app_id)
         )
         con.commit()
 
@@ -274,11 +255,11 @@ def get_it_services():
     with get_connection() as con:
         query = """
             SELECT
-                its.id, its.name, p.name as provider, its.status,
+                its.id, its.name, iu.name as providing_it_unit, its.status,
                 its.service_owner, its.fte_count, sl.name as sla_level, 
                 sm.name as service_method, its.budget_allocation
             FROM it_services its
-            LEFT JOIN providers p ON its.provider_id = p.id
+            LEFT JOIN it_units iu ON its.it_unit_id = iu.id
             LEFT JOIN sla_levels sl ON its.sla_level_id = sl.id
             LEFT JOIN service_methods sm ON its.service_method_id = sm.id
             ORDER BY its.name
@@ -293,23 +274,23 @@ def get_it_service_details(service_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_it_service(name, desc, provider_id, fte, deps, owner, status, sla_id, method_id, budget):
+def add_it_service(name, desc, it_unit_id, fte, deps, owner, status, sla_id, method_id, budget):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("""
-            INSERT INTO it_services (name, description, provider_id, fte_count, dependencies, service_owner, status, sla_level_id, service_method_id, budget_allocation)
+            INSERT INTO it_services (name, description, it_unit_id, fte_count, dependencies, service_owner, status, sla_level_id, service_method_id, budget_allocation)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (name, desc, provider_id, fte, deps, owner, status, sla_id, method_id, budget))
+        """, (name, desc, it_unit_id, fte, deps, owner, status, sla_id, method_id, budget))
         con.commit()
 
-def update_it_service(service_id, name, desc, provider_id, fte, deps, owner, status, sla_id, method_id, budget):
+def update_it_service(service_id, name, desc, it_unit_id, fte, deps, owner, status, sla_id, method_id, budget):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("""
             UPDATE it_services
-            SET name=?, description=?, provider_id=?, fte_count=?, dependencies=?, service_owner=?, status=?, sla_level_id=?, service_method_id=?, budget_allocation=?
+            SET name=?, description=?, it_unit_id=?, fte_count=?, dependencies=?, service_owner=?, status=?, sla_level_id=?, service_method_id=?, budget_allocation=?
             WHERE id = ?
-        """, (name, desc, provider_id, fte, deps, owner, status, sla_id, method_id, budget, service_id))
+        """, (name, desc, it_unit_id, fte, deps, owner, status, sla_id, method_id, budget, service_id))
         con.commit()
 
 def delete_it_service(service_id):
@@ -346,112 +327,99 @@ def main():
     st.set_page_config(layout="wide", page_title="Service Portfolio Manager")
     
     if not check_authentication():
-        return  # Stop the app if user is not authenticated
+        return
 
     init_db()
     
-    # --- Sidebar for logged-in user ---
     st.sidebar.success(f"Logged in as {st.session_state['user_email']}")
     if st.sidebar.button("Logout"):
         st.session_state['authenticated'] = False
         st.session_state.pop('user_email', None)
         st.rerun()
 
-
     st.title("Service Portfolio Manager")
-    st.write("Track providers, applications, and internal IT services to identify overlaps and cost-saving opportunities.")
+    st.write("Track IT Units, applications, and internal IT services to identify overlaps and cost-saving opportunities.")
 
-    tab_names = ["Providers", "Applications", "IT Services", "Dashboard", "Settings"]
-    provider_tab, app_tab, service_tab, dashboard_tab, settings_tab = st.tabs(tab_names)
+    tab_names = ["IT Units", "Applications", "IT Services", "Dashboard", "Settings"]
+    unit_tab, app_tab, service_tab, dashboard_tab, settings_tab = st.tabs(tab_names)
 
-    # Pre-load data for dropdowns
-    providers_df_all = get_providers()
-    provider_options_all = dict(zip(providers_df_all['id'], providers_df_all['name']))
+    it_units_df_all = get_it_units()
+    it_unit_options_all = dict(zip(it_units_df_all['id'], it_units_df_all['name']))
 
-    # --- PROVIDERS TAB ---
-    with provider_tab:
-        st.header("Manage Service Providers")
+    with unit_tab:
+        st.header("Manage IT Units")
+        st.info(TAB_INSTRUCTIONS["IT Units"])
         
-        with st.expander("➕ Add New Provider"):
-            with st.form("add_provider_form", clear_on_submit=True):
-                name = st.text_input("Provider Name")
+        with st.expander("➕ Add New IT Unit"):
+            with st.form("add_unit_form", clear_on_submit=True):
+                name = st.text_input("IT Unit Name")
                 contact_person = st.text_input("Contact Person")
                 contact_email = st.text_input("Contact Email")
                 total_fte = st.number_input("Total FTE", min_value=0, step=1)
                 budget_amount = st.number_input("Annual Budget ($)", min_value=0.0, format="%.2f")
                 notes = st.text_area("Notes", height=150)
-                if st.form_submit_button("Add Provider") and name:
-                    add_provider(name, contact_person, contact_email, total_fte, budget_amount, notes)
+                if st.form_submit_button("Add IT Unit") and name:
+                    add_it_unit(name, contact_person, contact_email, total_fte, budget_amount, notes)
                     st.rerun()
         
         st.divider()
-        search_provider = st.text_input("Search Providers by Name")
+        search_unit = st.text_input("Search IT Units by Name")
         
-        filtered_providers_df = providers_df_all
-        if search_provider:
-            filtered_providers_df = providers_df_all[providers_df_all['name'].str.contains(search_provider, case=False, na=False)]
+        filtered_units_df = it_units_df_all
+        if search_unit:
+            filtered_units_df = it_units_df_all[it_units_df_all['name'].str.contains(search_unit, case=False, na=False)]
 
-        st.subheader("Edit or Delete a Provider")
+        st.subheader("Edit or Delete an IT Unit")
         
-        provider_options = dict(zip(filtered_providers_df['id'], filtered_providers_df['name']))
+        unit_options = dict(zip(filtered_units_df['id'], filtered_units_df['name']))
+        unit_to_edit_id = st.selectbox("Select an IT Unit", options=[None] + list(unit_options.keys()), format_func=lambda x: "---" if x is None else unit_options.get(x))
 
-        provider_to_edit_id = st.selectbox("Select a provider", options=[None] + list(provider_options.keys()), format_func=lambda x: "---" if x is None else provider_options.get(x), key="edit_provider_select")
-
-        if provider_to_edit_id:
-            provider_details = get_provider_details(provider_to_edit_id)
-            with st.form("edit_provider_form"):
-                st.write(f"**Editing: {provider_details['name']}**")
-                name = st.text_input("Provider Name", value=provider_details['name'])
-                contact_person = st.text_input("Contact Person", value=provider_details.get('contact_person') or '')
-                contact_email = st.text_input("Contact Email", value=provider_details.get('contact_email') or '')
-                total_fte = st.number_input("Total FTE", min_value=0, step=1, value=int(provider_details.get('total_fte') or 0))
-                budget_amount = st.number_input("Annual Budget ($)", min_value=0.0, format="%.2f", value=float(provider_details.get('budget_amount') or 0.0))
-                notes = st.text_area("Notes", value=provider_details.get('notes') or '', height=150)
+        if unit_to_edit_id:
+            unit_details = get_it_unit_details(unit_to_edit_id)
+            with st.form("edit_unit_form"):
+                st.write(f"**Editing: {unit_details['name']}**")
+                name = st.text_input("IT Unit Name", value=unit_details['name'])
+                contact_person = st.text_input("Contact Person", value=unit_details.get('contact_person') or '')
+                contact_email = st.text_input("Contact Email", value=unit_details.get('contact_email') or '')
+                total_fte = st.number_input("Total FTE", min_value=0, step=1, value=int(unit_details.get('total_fte') or 0))
+                budget_amount = st.number_input("Annual Budget ($)", min_value=0.0, format="%.2f", value=float(unit_details.get('budget_amount') or 0.0))
+                notes = st.text_area("Notes", value=unit_details.get('notes') or '', height=150)
                 
                 del_col, save_col = st.columns([1, 6])
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
-                    update_provider_details(provider_to_edit_id, name, contact_person, contact_email, total_fte, budget_amount, notes)
+                    update_it_unit_details(unit_to_edit_id, name, contact_person, contact_email, total_fte, budget_amount, notes)
                     st.success(f"Updated details for {name}")
                     st.rerun()
                 if del_col.form_submit_button("DELETE"):
-                    delete_provider(provider_to_edit_id)
-                    st.warning(f"Deleted provider: {provider_details['name']}")
+                    delete_it_unit(unit_to_edit_id)
+                    st.warning(f"Deleted IT Unit: {unit_details['name']}")
                     st.rerun()
 
-        st.subheader("All Providers")
-        st.dataframe(filtered_providers_df, width='stretch')
+        st.subheader("All IT Units")
+        st.dataframe(filtered_units_df, width='stretch')
         
-        csv_providers = convert_df_to_csv(filtered_providers_df)
-        st.download_button(
-            label="Download data as CSV",
-            data=csv_providers,
-            file_name='providers_export.csv',
-            mime='text/csv',
-        )
+        csv_units = convert_df_to_csv(filtered_units_df)
+        st.download_button(label="Download data as CSV", data=csv_units, file_name='it_units_export.csv', mime='text/csv')
 
-
-    # --- APPLICATIONS TAB ---
     with app_tab:
         st.header("Manage Applications")
+        st.info(TAB_INSTRUCTIONS["Applications"])
+        
+        vendors_df = get_lookup_data('vendors')
+        vendor_options_all = dict(zip(vendors_df['id'], vendors_df['name']))
         service_types_df = get_lookup_data('service_types')
-        categories_df = get_lookup_data('categories')
         type_options_all = dict(zip(service_types_df['id'], service_types_df['name']))
+        categories_df = get_lookup_data('categories')
         category_options_all = dict(zip(categories_df['id'], categories_df['name']))
 
         with st.expander("➕ Add New Application"):
-            if providers_df_all.empty or service_types_df.empty or categories_df.empty:
-                st.warning("Please add at least one Provider, Application Type, and Category in Settings.")
+            if it_units_df_all.empty:
+                st.warning("Please add at least one IT Unit before adding an application.")
             else:
-                provider_list = ["--- Select a Provider ---"] + list(provider_options_all.values()) + ["--- Add a new provider ---"]
-                provider_selection = st.selectbox("Provider", options=provider_list, key="app_provider_selection")
-
                 with st.form("add_app_form", clear_on_submit=True):
                     app_name = st.text_input("Application Name")
-                    
-                    new_provider_name = ""
-                    if provider_selection == "--- Add a new provider ---":
-                        new_provider_name = st.text_input("Enter New Provider Name")
-
+                    it_unit_id = st.selectbox("Managing IT Unit", options=it_unit_options_all.keys(), format_func=it_unit_options_all.get)
+                    vendor_id = st.selectbox("Vendor (Optional, for external apps)", options=[None] + list(vendor_options_all.keys()), format_func=lambda x: "None (Internal)" if x is None else vendor_options_all.get(x))
                     service_type_id = st.selectbox("Type", options=type_options_all.keys(), format_func=type_options_all.get)
                     category_id = st.selectbox("Category", options=category_options_all.keys(), format_func=category_options_all.get)
                     annual_cost = st.number_input("Annual Cost ($)", min_value=0.0, format="%.2f")
@@ -460,69 +428,54 @@ def main():
                     other_units = st.text_area("Other Business Units Using Service", height=100)
                     
                     if st.form_submit_button("Save Application") and app_name:
-                        final_provider_id = None
-                        if new_provider_name.strip():
-                            final_provider_id = add_provider(name=new_provider_name)
-                        elif provider_selection not in ["--- Select a Provider ---", "--- Add a new provider ---"]:
-                            name_to_id_map = {v: k for k, v in provider_options_all.items()}
-                            final_provider_id = name_to_id_map.get(provider_selection)
-                        
-                        if final_provider_id:
-                            add_application(final_provider_id, app_name, service_type_id, category_id, annual_cost, str(renewal_date), integrations, other_units)
-                            st.success(f"Added application: {app_name}")
-                            st.rerun()
-                        else:
-                            st.error("Please select or add a provider.")
-
+                        add_application(it_unit_id, vendor_id, app_name, service_type_id, category_id, annual_cost, str(renewal_date), integrations, other_units)
+                        st.success(f"Added application: {app_name}")
+                        st.rerun()
         st.divider()
 
         st.subheader("Filter and Search Applications")
         fcol1, fcol2, fcol3, fcol4 = st.columns(4)
         search_app = fcol1.text_input("Search by Name")
-        filter_provider = fcol2.multiselect("Filter by Provider", options=provider_options_all.values())
-        filter_type = fcol3.multiselect("Filter by Type", options=type_options_all.values())
+        filter_unit = fcol2.multiselect("Filter by IT Unit", options=it_unit_options_all.values())
+        filter_vendor = fcol3.multiselect("Filter by Vendor", options=vendor_options_all.values())
         filter_category = fcol4.multiselect("Filter by Category", options=category_options_all.values())
         
         applications_df = get_applications()
         filtered_apps_df = applications_df.copy()
-
-        if search_app:
-            filtered_apps_df = filtered_apps_df[filtered_apps_df['name'].str.contains(search_app, case=False, na=False)]
-        if filter_provider:
-            filtered_apps_df = filtered_apps_df[filtered_apps_df['provider'].isin(filter_provider)]
-        if filter_type:
-            filtered_apps_df = filtered_apps_df[filtered_apps_df['type'].isin(filter_type)]
-        if filter_category:
-            filtered_apps_df = filtered_apps_df[filtered_apps_df['category'].isin(filter_category)]
+        
+        if search_app: filtered_apps_df = filtered_apps_df[filtered_apps_df['name'].str.contains(search_app, case=False, na=False)]
+        if filter_unit: filtered_apps_df = filtered_apps_df[filtered_apps_df['managing_it_unit'].isin(filter_unit)]
+        if filter_vendor: filtered_apps_df = filtered_apps_df[filtered_apps_df['vendor'].isin(filter_vendor)]
+        if filter_category: filtered_apps_df = filtered_apps_df[filtered_apps_df['category'].isin(filter_category)]
 
         st.dataframe(filtered_apps_df, width='stretch')
-        
         csv_apps = convert_df_to_csv(filtered_apps_df)
-        st.download_button(
-            label="Download data as CSV",
-            data=csv_apps,
-            file_name='applications_export.csv',
-            mime='text/csv',
-        )
+        st.download_button(label="Download data as CSV", data=csv_apps, file_name='applications_export.csv', mime='text/csv')
 
         st.subheader("Edit or Delete an Application")
         app_options_all = dict(zip(applications_df['id'], applications_df['name']))
-        app_to_edit_id = st.selectbox("Select an application", options=[None] + list(app_options_all.keys()), format_func=lambda x: "---" if x is None else app_options_all.get(x), key="edit_app_select")
+        app_to_edit_id = st.selectbox("Select an application", options=[None] + list(app_options_all.keys()), format_func=lambda x: "---" if x is None else app_options_all.get(x))
 
         if app_to_edit_id:
             app_details = get_application_details(app_to_edit_id)
             with st.form(f"edit_app_form_{app_to_edit_id}"):
+                # Form fields...
                 st.write(f"**Editing: {app_details['name']}**")
                 edit_name = st.text_input("Application Name", value=app_details['name'])
                 
-                default_provider_index = list(provider_options_all.keys()).index(app_details['provider_id']) if app_details.get('provider_id') in provider_options_all else 0
-                edit_provider_id = st.selectbox("Provider", options=provider_options_all.keys(), format_func=provider_options_all.get, index=default_provider_index)
+                default_unit_idx = list(it_unit_options_all.keys()).index(app_details['it_unit_id']) if app_details.get('it_unit_id') in it_unit_options_all else 0
+                edit_it_unit_id = st.selectbox("Managing IT Unit", options=it_unit_options_all.keys(), format_func=it_unit_options_all.get, index=default_unit_idx)
+
+                vendor_keys = [None] + list(vendor_options_all.keys())
+                default_vendor_id = app_details.get('vendor_id')
+                default_vendor_idx = vendor_keys.index(default_vendor_id) if default_vendor_id in vendor_keys else 0
+                edit_vendor_id = st.selectbox("Vendor", options=vendor_keys, format_func=lambda x: "None (Internal)" if x is None else vendor_options_all.get(x), index=default_vendor_idx)
+
+                default_type_idx = list(type_options_all.keys()).index(app_details['service_type_id']) if app_details.get('service_type_id') in type_options_all else 0
+                edit_type_id = st.selectbox("Type", options=type_options_all.keys(), format_func=type_options_all.get, index=default_type_idx)
                 
-                default_type_index = list(type_options_all.keys()).index(app_details['service_type_id']) if app_details.get('service_type_id') in type_options_all else 0
-                edit_type_id = st.selectbox("Type", options=type_options_all.keys(), format_func=type_options_all.get, index=default_type_index)
-                
-                default_cat_index = list(category_options_all.keys()).index(app_details['category_id']) if app_details.get('category_id') in category_options_all else 0
-                edit_category_id = st.selectbox("Category", options=category_options_all.keys(), format_func=category_options_all.get, index=default_cat_index)
+                default_cat_idx = list(category_options_all.keys()).index(app_details['category_id']) if app_details.get('category_id') in category_options_all else 0
+                edit_category_id = st.selectbox("Category", options=category_options_all.keys(), format_func=category_options_all.get, index=default_cat_idx)
 
                 edit_annual_cost = st.number_input("Annual Cost ($)", min_value=0.0, format="%.2f", value=float(app_details.get('annual_cost') or 0.0))
                 edit_renewal = st.date_input("Next Renewal Date", value=pd.to_datetime(app_details['renewal_date']))
@@ -531,7 +484,7 @@ def main():
 
                 del_col, save_col = st.columns([1, 6])
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
-                    update_application(app_to_edit_id, edit_provider_id, edit_name, edit_type_id, edit_category_id, edit_annual_cost, str(edit_renewal), edit_integrations, edit_other_units)
+                    update_application(app_to_edit_id, edit_it_unit_id, edit_vendor_id, edit_name, edit_type_id, edit_category_id, edit_annual_cost, str(edit_renewal), edit_integrations, edit_other_units)
                     st.success("Application updated.")
                     st.rerun()
                 if del_col.form_submit_button("DELETE"):
@@ -539,25 +492,20 @@ def main():
                     st.warning(f"Deleted application: {app_details['name']}")
                     st.rerun()
 
-    # --- IT SERVICES TAB ---
     with service_tab:
         st.header("Manage Internal IT Services")
+        st.info(TAB_INSTRUCTIONS["IT Services"])
+        
         sla_levels_df = get_lookup_data('sla_levels')
         service_methods_df = get_lookup_data('service_methods')
         sla_options_all = dict(zip(sla_levels_df['id'], sla_levels_df['name']))
         method_options_all = dict(zip(service_methods_df['id'], service_methods_df['name']))
         
         with st.expander("➕ Add New IT Service"):
-            provider_list_it = ["--- Select a Provider (Optional) ---"] + list(provider_options_all.values()) + ["--- Add a new provider ---"]
-            provider_selection_it = st.selectbox("Associated Provider", options=provider_list_it, key="it_provider_select")
-
             with st.form("add_it_service_form", clear_on_submit=True):
+                # Form fields...
                 it_service_name = st.text_input("Service Name")
-
-                new_provider_name_it = ""
-                if provider_selection_it == "--- Add a new provider ---":
-                    new_provider_name_it = st.text_input("Enter New Provider Name", key="it_new_provider")
-
+                it_unit_id = st.selectbox("Providing IT Unit", options=[None] + list(it_unit_options_all.keys()), format_func=lambda x: "None" if x is None else it_unit_options_all.get(x))
                 status = st.selectbox("Status", options=["Active", "In Development", "Retired"])
                 service_owner = st.text_input("Service Owner/Lead")
                 fte_count = st.number_input("Dedicated FTEs", min_value=0, step=1)
@@ -568,79 +516,58 @@ def main():
                 dependencies = st.text_area("Dependencies (e.g., other apps, services)")
                 
                 if st.form_submit_button("Add Service") and it_service_name:
-                    final_provider_id_it = None
-                    if new_provider_name_it.strip():
-                        final_provider_id_it = add_provider(name=new_provider_name_it)
-                    elif provider_selection_it not in ["--- Select a Provider (Optional) ---", "--- Add a new provider ---"]:
-                        name_to_id_map = {v: k for k, v in provider_options_all.items()}
-                        final_provider_id_it = name_to_id_map.get(provider_selection_it)
-                    
-                    add_it_service(it_service_name, it_service_desc, final_provider_id_it, fte_count, dependencies, service_owner, status, sla_id, method_id, budget_allocation)
+                    add_it_service(it_service_name, it_service_desc, it_unit_id, fte_count, dependencies, service_owner, status, sla_id, method_id, budget_allocation)
                     st.success(f"Added service: {it_service_name}")
                     st.rerun()
         
         st.divider()
         st.subheader("Filter and Search IT Services")
-        fscol1, fscol2, fscol3, fscol4, fscol5 = st.columns(5)
+        # Filters...
+        fscol1, fscol2, fscol3, fscol4 = st.columns(4)
         search_its = fscol1.text_input("Search by Name", key="it_search")
-        filter_provider_its = fscol2.multiselect("Provider", options=provider_options_all.values(), key="it_prov_filter")
+        filter_unit_its = fscol2.multiselect("Filter by IT Unit", options=it_unit_options_all.values(), key="it_unit_filter")
         filter_status_its = fscol3.multiselect("Status", options=["Active", "In Development", "Retired"], key="it_status_filter")
         filter_sla_its = fscol4.multiselect("SLA Level", options=sla_options_all.values(), key="it_sla_filter")
-        filter_method_its = fscol5.multiselect("Method", options=method_options_all.values(), key="it_method_filter")
 
         it_services_df = get_it_services()
         filtered_its_df = it_services_df.copy()
 
-        if search_its:
-            filtered_its_df = filtered_its_df[filtered_its_df['name'].str.contains(search_its, case=False, na=False)]
-        if filter_provider_its:
-            filtered_its_df = filtered_its_df[filtered_its_df['provider'].isin(filter_provider_its)]
-        if filter_status_its:
-            filtered_its_df = filtered_its_df[filtered_its_df['status'].isin(filter_status_its)]
-        if filter_sla_its:
-            filtered_its_df = filtered_its_df[filtered_its_df['sla_level'].isin(filter_sla_its)]
-        if filter_method_its:
-            filtered_its_df = filtered_its_df[filtered_its_df['service_method'].isin(filter_method_its)]
+        if search_its: filtered_its_df = filtered_its_df[filtered_its_df['name'].str.contains(search_its, case=False, na=False)]
+        if filter_unit_its: filtered_its_df = filtered_its_df[filtered_its_df['providing_it_unit'].isin(filter_unit_its)]
+        if filter_status_its: filtered_its_df = filtered_its_df[filtered_its_df['status'].isin(filter_status_its)]
+        if filter_sla_its: filtered_its_df = filtered_its_df[filtered_its_df['sla_level'].isin(filter_sla_its)]
 
         st.dataframe(filtered_its_df, width='stretch')
-
         csv_its = convert_df_to_csv(filtered_its_df)
-        st.download_button(
-            label="Download data as CSV",
-            data=csv_its,
-            file_name='it_services_export.csv',
-            mime='text/csv',
-        )
+        st.download_button(label="Download data as CSV", data=csv_its, file_name='it_services_export.csv', mime='text/csv')
         
         st.subheader("Edit or Delete an IT Service")
         it_service_options_all = dict(zip(it_services_df['id'], it_services_df['name']))
-        it_service_to_edit_id = st.selectbox("Select a service", options=[None] + list(it_service_options_all.keys()), format_func=lambda x: "---" if x is None else it_service_options_all.get(x), key="edit_it_service_select")
+        it_service_to_edit_id = st.selectbox("Select a service", options=[None] + list(it_service_options_all.keys()), format_func=lambda x: "---" if x is None else it_service_options_all.get(x))
 
         if it_service_to_edit_id:
             it_service_details = get_it_service_details(it_service_to_edit_id)
             with st.form(f"edit_it_service_{it_service_to_edit_id}"):
+                # Form fields...
                 st.write(f"**Editing: {it_service_details['name']}**")
                 edit_it_name = st.text_input("Service Name", value=it_service_details['name'])
                 
-                provider_keys = [None] + list(provider_options_all.keys())
-                default_provider_id = it_service_details.get('provider_id')
-                default_provider_index = provider_keys.index(default_provider_id) if default_provider_id in provider_keys else 0
-                edit_provider_id = st.selectbox("Associated Provider", options=provider_keys, format_func=lambda x: "None" if x is None else provider_options_all.get(x), index=default_provider_index, key="edit_it_provider")
-
+                unit_keys = [None] + list(it_unit_options_all.keys())
+                default_unit_id = it_service_details.get('it_unit_id')
+                default_unit_idx = unit_keys.index(default_unit_id) if default_unit_id in unit_keys else 0
+                edit_it_unit_id = st.selectbox("Providing IT Unit", options=unit_keys, format_func=lambda x: "None" if x is None else it_unit_options_all.get(x), index=default_unit_idx)
+                
                 status_options = ["Active", "In Development", "Retired"]
-                default_status = it_service_details.get('status')
-                default_status_index = status_options.index(default_status) if default_status in status_options else 0
-                edit_status = st.selectbox("Status", options=status_options, index=default_status_index)
+                default_status_idx = status_options.index(it_service_details.get('status')) if it_service_details.get('status') in status_options else 0
+                edit_status = st.selectbox("Status", options=status_options, index=default_status_idx)
                 
                 sla_keys = [None] + list(sla_options_all.keys())
-                default_sla_id = it_service_details.get('sla_level_id')
-                default_sla_index = sla_keys.index(default_sla_id) if default_sla_id in sla_keys else 0
-                edit_sla_id = st.selectbox("SLA Level", options=sla_keys, format_func=lambda x: "None" if x is None else sla_options_all.get(x), index=default_sla_index)
+                default_sla_idx = sla_keys.index(it_service_details.get('sla_level_id')) if it_service_details.get('sla_level_id') in sla_keys else 0
+                edit_sla_id = st.selectbox("SLA Level", options=sla_keys, format_func=lambda x: "None" if x is None else sla_options_all.get(x), index=default_sla_idx)
 
                 method_keys = [None] + list(method_options_all.keys())
-                default_method_id = it_service_details.get('service_method_id')
-                default_method_index = method_keys.index(default_method_id) if default_method_id in method_keys else 0
-                edit_method_id = st.selectbox("Service Method", options=method_keys, format_func=lambda x: "None" if x is None else method_options_all.get(x), index=default_method_index)
+                default_method_idx = method_keys.index(it_service_details.get('service_method_id')) if it_service_details.get('service_method_id') in method_keys else 0
+                edit_method_id = st.selectbox("Service Method", options=method_keys, format_func=lambda x: "None" if x is None else method_options_all.get(x), index=default_method_idx)
 
                 edit_service_owner = st.text_input("Service Owner/Lead", value=it_service_details.get('service_owner') or '')
                 edit_fte_count = st.number_input("Dedicated FTEs", min_value=0, step=1, value=int(it_service_details.get('fte_count') or 0))
@@ -650,7 +577,7 @@ def main():
 
                 del_col, save_col = st.columns([1, 6])
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
-                    update_it_service(it_service_to_edit_id, edit_it_name, edit_it_desc, edit_provider_id, edit_fte_count, edit_dependencies, edit_service_owner, edit_status, edit_sla_id, edit_method_id, edit_budget)
+                    update_it_service(it_service_to_edit_id, edit_it_name, edit_it_desc, edit_it_unit_id, edit_fte_count, edit_dependencies, edit_service_owner, edit_status, edit_sla_id, edit_method_id, edit_budget)
                     st.success(f"Updated {edit_it_name}")
                     st.rerun()
                 if del_col.form_submit_button("DELETE"):
@@ -658,12 +585,12 @@ def main():
                     st.warning(f"Deleted service: {it_service_details['name']}")
                     st.rerun()
 
-
-    # --- DASHBOARD TAB ---
     with dashboard_tab:
         st.header("Dashboard & Recommendations")
+        st.info(TAB_INSTRUCTIONS["Dashboard"])
+        
         all_apps_df = get_applications()
-        all_providers_df = get_providers()
+        all_it_units_df = get_it_units()
         all_it_services_df = get_it_services()
         
         st.subheader("High-Level Metrics")
@@ -672,34 +599,26 @@ def main():
         total_annual_cost = all_apps_df['annual_cost'].sum() if not all_apps_df.empty else 0.0
         total_it_budget = all_it_services_df['budget_allocation'].sum() if not all_it_services_df.empty else 0.0
         
-        metric_col1.metric("Total Providers", len(all_providers_df))
+        metric_col1.metric("Total IT Units", len(all_it_units_df))
         metric_col2.metric("Total Applications", len(all_apps_df))
         metric_col3.metric("Total IT Services", len(all_it_services_df))
         metric_col4.metric("Total Annual Spend/Budget", f"${(total_annual_cost + total_it_budget):,.2f}")
 
-
         if not all_apps_df.empty:
             st.divider()
             st.subheader("Application Insights")
-
             chart_col1, chart_col2 = st.columns(2)
-
             with chart_col1:
-                # Chart 1: Cost by Provider
-                cost_by_provider = all_apps_df.groupby('provider')['annual_cost'].sum().reset_index()
-                fig_provider_cost = px.pie(cost_by_provider, names='provider', values='annual_cost', title='Annual Cost by Provider')
-                st.plotly_chart(fig_provider_cost, use_container_width=True)
-
-                # Chart 3: Cost by Application Type
-                cost_by_type = all_apps_df.groupby('type')['annual_cost'].sum().reset_index()
-                fig_type_cost = px.pie(cost_by_type, names='type', values='annual_cost', title='Annual Cost by Application Type')
-                st.plotly_chart(fig_type_cost, use_container_width=True)
-
+                cost_by_vendor = all_apps_df.groupby('vendor')['annual_cost'].sum().reset_index()
+                fig_vendor_cost = px.pie(cost_by_vendor, names='vendor', values='annual_cost', title='Annual Cost by Vendor')
+                st.plotly_chart(fig_vendor_cost, use_container_width=True)
+                
+                apps_by_unit = all_apps_df['managing_it_unit'].value_counts().reset_index()
+                fig_apps_by_unit = px.pie(apps_by_unit, names='managing_it_unit', values='count', title='Application Count by Managing IT Unit')
+                st.plotly_chart(fig_apps_by_unit, use_container_width=True)
 
             with chart_col2:
-                # Chart 2: Apps by Category
                 apps_by_category = all_apps_df['category'].value_counts().reset_index()
-                apps_by_category.columns = ['category', 'count']
                 fig_app_category = px.bar(apps_by_category, x='category', y='count', title='Application Count by Category')
                 st.plotly_chart(fig_app_category, use_container_width=True)
             
@@ -708,7 +627,7 @@ def main():
             duplicates = all_apps_df.dropna(subset=['category'])[all_apps_df.dropna(subset=['category']).duplicated(subset=['category'], keep=False)].sort_values(by='category')
             if not duplicates.empty:
                 st.warning("Found applications in the same category. Review for potential consolidation.")
-                st.dataframe(duplicates[['provider', 'name', 'category', 'annual_cost']], width='stretch')
+                st.dataframe(duplicates[['managing_it_unit', 'vendor', 'name', 'category', 'annual_cost']], width='stretch')
             else:
                 st.success("No overlapping application categories found.")
         else:
@@ -717,38 +636,33 @@ def main():
         if not all_it_services_df.empty:
             st.divider()
             st.subheader("IT Service Insights")
-            
             it_chart_col1, it_chart_col2 = st.columns(2)
-
             with it_chart_col1:
-                 # IT Chart 1: Budget by Service
                 budget_by_service = all_it_services_df.groupby('name')['budget_allocation'].sum().reset_index()
                 fig_it_budget = px.pie(budget_by_service, names='name', values='budget_allocation', title='Budget Allocation by IT Service')
                 st.plotly_chart(fig_it_budget, use_container_width=True)
-            
             with it_chart_col2:
-                # IT Chart 2: FTEs by Service
                 fte_by_service = all_it_services_df.groupby('name')['fte_count'].sum().reset_index()
                 fig_it_fte = px.bar(fte_by_service, x='name', y='fte_count', title='Dedicated FTEs by IT Service')
                 st.plotly_chart(fig_it_fte, use_container_width=True)
-
         else:
             st.info("Add IT services to see service-specific insights.")
 
-
-    # --- SETTINGS TAB ---
     with settings_tab:
         st.header("Manage Lookups")
+        st.info(TAB_INSTRUCTIONS["Settings"])
         
-        type_col, cat_col = st.columns(2)
+        ven_col, type_col = st.columns(2)
+        with ven_col:
+            render_lookup_manager("Vendors", "Vendor", "vendors")
         with type_col:
             render_lookup_manager("Application Types", "Application Type", "service_types")
-        with cat_col:
-            render_lookup_manager("Categories", "Category", "categories")
 
         st.divider()
 
-        sla_col, method_col = st.columns(2)
+        cat_col, sla_col, method_col = st.columns(3)
+        with cat_col:
+            render_lookup_manager("Categories", "Category", "categories")
         with sla_col:
             render_lookup_manager("SLA Levels", "SLA Level", "sla_levels")
         with method_col:
