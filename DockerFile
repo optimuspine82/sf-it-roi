@@ -1,27 +1,25 @@
-FROM python:3.11-slim
+Use an official Python runtime as a parent image
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libsqlite3-dev \
- && rm -rf /var/lib/apt/lists/*
+FROM python:3.9-slim
+Set the working directory in the container
 
-# Set workdir
 WORKDIR /app
+Copy the requirements file into the container at /app
 
-# Copy requirements and install Python deps
 COPY requirements.txt .
+Install any needed packages specified in requirements.txt
+
 RUN pip install --no-cache-dir -r requirements.txt
+Copy the rest of the application's code into the container at /app
 
-# Copy the full app
-COPY . .
+COPY app.py .
+COPY portfolio.db .
+Make port 8501 available to the world outside this container
 
-# Ensure data dir exists and is writable
-RUN mkdir -p /app/data && chmod -R 777 /app/data
-
-# Expose the default Streamlit port
 EXPOSE 8501
+Define environment variable
 
-# Run Streamlit
-ENTRYPOINT ["streamlit", "run"]
-CMD ["streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+ENV STREAMLIT_SERVER_HEADLESS true
+Run app.py when the container launches
+
+CMD ["streamlit", "run", "app.py"]
