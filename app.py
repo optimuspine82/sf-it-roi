@@ -16,22 +16,15 @@ def init_db():
         # --- Providers Table Setup & Migration ---
         cur.execute("CREATE TABLE IF NOT EXISTS providers (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)")
         
-        # Migration: Move other_units from providers to applications
         cur.execute("PRAGMA table_info(providers)")
         providers_columns = [info[1] for info in cur.fetchall()]
         if 'other_units' in providers_columns:
             st.info("Old schema detected. Migrating 'other_units' field from Providers to Applications...")
-            # Rebuild the providers table without the 'other_units' column
             cur.execute("ALTER TABLE providers RENAME TO providers_old")
             cur.execute("""
                 CREATE TABLE providers (
-                    id INTEGER PRIMARY KEY,
-                    name TEXT NOT NULL UNIQUE,
-                    contact_person TEXT,
-                    contact_email TEXT,
-                    notes TEXT,
-                    total_fte INTEGER,
-                    budget_amount REAL
+                    id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, contact_person TEXT,
+                    contact_email TEXT, notes TEXT, total_fte INTEGER, budget_amount REAL
                 )
             """)
             cur.execute("""
@@ -54,22 +47,19 @@ def init_db():
         # --- Lookup Tables ---
         cur.execute('''CREATE TABLE IF NOT EXISTS service_types (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)''')
         cur.execute('''CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)''')
+        cur.execute('''CREATE TABLE IF NOT EXISTS sla_levels (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)''')
+        cur.execute('''CREATE TABLE IF NOT EXISTS service_methods (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)''')
 
         # --- RENAME services to applications for migration ---
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='services'")
-        services_exists = cur.fetchone()
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='applications'")
-        applications_exists = cur.fetchone()
-        if services_exists and not applications_exists:
+        if cur.fetchone():
             cur.execute("ALTER TABLE services RENAME TO applications")
             st.success("Migrated database table from 'services' to 'applications'.")
 
-        # --- Applications (formerly Services) Table Setup & Migration ---
+        # --- Applications Table Setup & Migration ---
         cur.execute('''
             CREATE TABLE IF NOT EXISTS applications (
-                id INTEGER PRIMARY KEY,
-                provider_id INTEGER,
-                name TEXT NOT NULL,
+                id INTEGER PRIMARY KEY, provider_id INTEGER, name TEXT NOT NULL,
                 renewal_date TEXT NOT NULL,
                 FOREIGN KEY (provider_id) REFERENCES providers (id) ON DELETE CASCADE
             )
@@ -77,24 +67,48 @@ def init_db():
         cur.execute("PRAGMA table_info(applications)")
         app_columns = [info[1] for info in cur.fetchall()]
         required_app_columns = {
-            "annual_cost": "REAL",
-            "service_type_id": "INTEGER REFERENCES service_types(id)",
-            "category_id": "INTEGER REFERENCES categories(id)",
-            "integrations": "TEXT",
-            "other_units": "TEXT" # Added this field
+            "annual_cost": "REAL", "service_type_id": "INTEGER REFERENCES service_types(id)",
+            "category_id": "INTEGER REFERENCES categories(id)", "integrations": "TEXT", "other_units": "TEXT"
         }
         for col, col_type in required_app_columns.items():
             if col not in app_columns:
                 cur.execute(f"ALTER TABLE applications ADD COLUMN {col} {col_type}")
         
-        # --- NEW IT Services Table ---
+        # --- IT Services Table Setup & Migration ---
         cur.execute('''
             CREATE TABLE IF NOT EXISTS it_services (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                description TEXT
+                id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT
             )
         ''')
+        cur.execute("PRAGMA table_info(it_services)")
+        it_services_columns = [info[1] for info in cur.fetchall()]
+        if 'sla_details' in it_services_columns: # Migration from old text field
+             # Use a temporary name to avoid conflicts
+            cur.execute("ALTER TABLE it_services RENAME TO it_services_old")
+            cur.execute('''
+                CREATE TABLE it_services (
+                    id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT,
+                    provider_id INTEGER REFERENCES providers(id), fte_count INTEGER,
+                    dependencies TEXT, service_owner TEXT, status TEXT,
+                    sla_level_id INTEGER REFERENCES sla_levels(id),
+                    service_method_id INTEGER REFERENCES service_methods(id)
+                )
+            ''')
+            cur.execute('''
+                INSERT INTO it_services (id, name, description, provider_id, fte_count, dependencies, service_owner, status)
+                SELECT id, name, description, provider_id, fte_count, dependencies, service_owner, status FROM it_services_old
+            ''')
+            cur.execute("DROP TABLE it_services_old")
+
+        required_it_services_columns = {
+            "provider_id": "INTEGER REFERENCES providers(id)", "fte_count": "INTEGER",
+            "dependencies": "TEXT", "service_owner": "TEXT", "status": "TEXT",
+            "sla_level_id": "INTEGER REFERENCES sla_levels(id)",
+            "service_method_id": "INTEGER REFERENCES service_methods(id)"
+        }
+        for col, col_type in required_it_services_columns.items():
+            if col not in it_services_columns:
+                cur.execute(f"ALTER TABLE it_services ADD COLUMN {col} {col_type}")
 
         con.commit()
     except sqlite3.Error as e:
@@ -111,12 +125,10 @@ def get_connection():
 
 # Provider Functions
 def get_providers():
-    """Fetches all providers from the database."""
     with get_connection() as con:
         return pd.read_sql_query("SELECT id, name FROM providers ORDER BY name", con)
 
 def get_provider_details(provider_id):
-    """Fetches all details for a single provider."""
     with get_connection() as con:
         con.row_factory = sqlite3.Row
         cur = con.cursor()
@@ -125,7 +137,6 @@ def get_provider_details(provider_id):
         return dict(row) if row else None
 
 def add_provider(name, contact_person, contact_email, total_fte, budget_amount, notes):
-    """Adds a new provider with all details."""
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("""
@@ -135,7 +146,6 @@ def add_provider(name, contact_person, contact_email, total_fte, budget_amount, 
         con.commit()
 
 def update_provider_details(provider_id, name, contact_person, contact_email, total_fte, budget_amount, notes):
-    """Updates all details for a provider."""
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("""
@@ -146,49 +156,31 @@ def update_provider_details(provider_id, name, contact_person, contact_email, to
         con.commit()
 
 def delete_provider(provider_id):
-    """Deletes a provider and all their associated applications."""
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("DELETE FROM providers WHERE id = ?", (provider_id,))
         cur.execute("DELETE FROM applications WHERE provider_id = ?", (provider_id,))
         con.commit()
 
-# Service Type & Category CRUD Functions
-def get_service_types():
+# Lookup CRUD Functions (Types, Categories, SLAs, Methods)
+def get_lookup_data(table_name):
     with get_connection() as con:
-        return pd.read_sql_query("SELECT * FROM service_types ORDER BY name", con)
+        return pd.read_sql_query(f"SELECT * FROM {table_name} ORDER BY name", con)
 
-def add_service_type(name):
-    with get_connection() as con:
-        cur = con.cursor()
-        cur.execute("INSERT INTO service_types (name) VALUES (?)", (name,))
-        con.commit()
-
-def delete_service_type(type_id):
+def add_lookup_item(table_name, name):
     with get_connection() as con:
         cur = con.cursor()
-        cur.execute("DELETE FROM service_types WHERE id = ?", (type_id,))
+        cur.execute(f"INSERT INTO {table_name} (name) VALUES (?)", (name,))
         con.commit()
 
-def get_categories():
-    with get_connection() as con:
-        return pd.read_sql_query("SELECT * FROM categories ORDER BY name", con)
-
-def add_category(name):
+def delete_lookup_item(table_name, item_id):
     with get_connection() as con:
         cur = con.cursor()
-        cur.execute("INSERT INTO categories (name) VALUES (?)", (name,))
+        cur.execute(f"DELETE FROM {table_name} WHERE id = ?", (item_id,))
         con.commit()
 
-def delete_category(category_id):
-    with get_connection() as con:
-        cur = con.cursor()
-        cur.execute("DELETE FROM categories WHERE id = ?", (category_id,))
-        con.commit()
-
-# Application Functions (formerly Services)
+# Application Functions
 def get_applications():
-    """Fetches all applications from all providers."""
     with get_connection() as con:
         query = """
             SELECT
@@ -202,7 +194,6 @@ def get_applications():
         return pd.read_sql_query(query, con)
 
 def get_application_details(app_id):
-    """Fetches raw details for a single application."""
     with get_connection() as con:
         con.row_factory = sqlite3.Row
         cur = con.cursor()
@@ -211,7 +202,6 @@ def get_application_details(app_id):
         return dict(row) if row else None
 
 def add_application(provider_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units):
-    """Adds a new application."""
     with get_connection() as con:
         cur = con.cursor()
         cur.execute(
@@ -222,7 +212,6 @@ def add_application(provider_id, name, service_type_id, category_id, annual_cost
         con.commit()
 
 def update_application(app_id, provider_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units):
-    """Updates an existing application."""
     with get_connection() as con:
         cur = con.cursor()
         cur.execute(
@@ -233,7 +222,6 @@ def update_application(app_id, provider_id, name, service_type_id, category_id, 
         con.commit()
 
 def delete_application(app_id):
-    """Deletes an application."""
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("DELETE FROM applications WHERE id = ?", (app_id,))
@@ -242,7 +230,17 @@ def delete_application(app_id):
 # IT Service Functions
 def get_it_services():
     with get_connection() as con:
-        return pd.read_sql_query("SELECT * FROM it_services ORDER BY name", con)
+        query = """
+            SELECT
+                its.id, its.name, p.name as provider, its.status,
+                its.service_owner, its.fte_count, sl.name as sla_level, sm.name as service_method
+            FROM it_services its
+            LEFT JOIN providers p ON its.provider_id = p.id
+            LEFT JOIN sla_levels sl ON its.sla_level_id = sl.id
+            LEFT JOIN service_methods sm ON its.service_method_id = sm.id
+            ORDER BY its.name
+        """
+        return pd.read_sql_query(query, con)
 
 def get_it_service_details(service_id):
     with get_connection() as con:
@@ -252,16 +250,23 @@ def get_it_service_details(service_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_it_service(name, description):
+def add_it_service(name, desc, provider_id, fte, deps, owner, status, sla_id, method_id):
     with get_connection() as con:
         cur = con.cursor()
-        cur.execute("INSERT INTO it_services (name, description) VALUES (?, ?)", (name, description))
+        cur.execute("""
+            INSERT INTO it_services (name, description, provider_id, fte_count, dependencies, service_owner, status, sla_level_id, service_method_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (name, desc, provider_id, fte, deps, owner, status, sla_id, method_id))
         con.commit()
 
-def update_it_service(service_id, name, description):
+def update_it_service(service_id, name, desc, provider_id, fte, deps, owner, status, sla_id, method_id):
     with get_connection() as con:
         cur = con.cursor()
-        cur.execute("UPDATE it_services SET name = ?, description = ? WHERE id = ?", (name, description, service_id))
+        cur.execute("""
+            UPDATE it_services
+            SET name=?, description=?, provider_id=?, fte_count=?, dependencies=?, service_owner=?, status=?, sla_level_id=?, service_method_id=?
+            WHERE id = ?
+        """, (name, desc, provider_id, fte, deps, owner, status, sla_id, method_id, service_id))
         con.commit()
 
 def delete_it_service(service_id):
@@ -272,6 +277,23 @@ def delete_it_service(service_id):
 
 # --- STREAMLIT UI ---
 
+def render_lookup_manager(title, singular_name, table_name):
+    st.write(f"#### {title}")
+    with st.form(f"add_{table_name}_form", clear_on_submit=True):
+        new_name = st.text_input(f"New {singular_name} Name")
+        if st.form_submit_button(f"Add {singular_name}"):
+            if new_name:
+                add_lookup_item(table_name, new_name)
+                st.rerun()
+    
+    items = get_lookup_data(table_name)
+    for _, row in items.iterrows():
+        l_col, r_col = st.columns([4, 1])
+        l_col.write(row['name'])
+        if r_col.button("🗑️", key=f"del_{table_name}_{row['id']}"):
+            delete_lookup_item(table_name, row['id'])
+            st.rerun()
+
 def main():
     st.set_page_config(layout="wide", page_title="Service Portfolio Manager")
     init_db()
@@ -279,9 +301,12 @@ def main():
     st.title("Service Portfolio Manager")
     st.write("Track providers, applications, and internal IT services to identify overlaps and cost-saving opportunities.")
 
-    provider_tab, app_tab, service_tab, dashboard_tab, settings_tab = st.tabs([
-        "Providers", "Applications", "IT Services", "Dashboard", "Settings"
-    ])
+    tab_names = ["Providers", "Applications", "IT Services", "Dashboard", "Settings"]
+    provider_tab, app_tab, service_tab, dashboard_tab, settings_tab = st.tabs(tab_names)
+
+    # Pre-load data for dropdowns
+    providers_df = get_providers()
+    provider_options = dict(zip(providers_df['id'], providers_df['name']))
 
     # --- PROVIDERS TAB ---
     with provider_tab:
@@ -300,11 +325,8 @@ def main():
                     st.success(f"Added: {name}")
                     st.rerun()
 
-        providers_df = get_providers()
-
         st.subheader("Edit or Delete a Provider")
-        provider_options = dict(zip(providers_df['id'], providers_df['name']))
-        provider_to_edit_id = st.selectbox("Select a provider to edit or delete", options=[None] + list(provider_options.keys()), format_func=lambda x: "---" if x is None else provider_options.get(x), key="edit_provider_select")
+        provider_to_edit_id = st.selectbox("Select a provider", options=[None] + list(provider_options.keys()), format_func=lambda x: "---" if x is None else provider_options.get(x), key="edit_provider_select")
 
         if provider_to_edit_id:
             provider_details = get_provider_details(provider_to_edit_id)
@@ -333,22 +355,20 @@ def main():
     # --- APPLICATIONS TAB ---
     with app_tab:
         st.header("Manage Applications")
-        service_types = get_service_types()
-        categories = get_categories()
+        service_types_df = get_lookup_data('service_types')
+        categories_df = get_lookup_data('categories')
+        type_options = dict(zip(service_types_df['id'], service_types_df['name']))
+        category_options = dict(zip(categories_df['id'], categories_df['name']))
 
         with st.expander("➕ Add New Application"):
-            if providers_df.empty or service_types.empty or categories.empty:
-                st.warning("Please add at least one Provider, Service Type, and Category before adding an application.")
+            if providers_df.empty or service_types_df.empty or categories_df.empty:
+                st.warning("Please add at least one Provider, Application Type, and Category in Settings.")
             else:
                 with st.form("add_app_form", clear_on_submit=True):
                     app_name = st.text_input("Application Name")
-                    provider_id = st.selectbox("Provider", options=provider_options.keys(), format_func=lambda x: provider_options.get(x))
-                    
-                    type_options = dict(zip(service_types['id'], service_types['name']))
-                    category_options = dict(zip(categories['id'], categories['name']))
-                    service_type_id = st.selectbox("Type", options=type_options.keys(), format_func=lambda x: type_options.get(x))
-                    category_id = st.selectbox("Category", options=category_options.keys(), format_func=lambda x: category_options.get(x))
-                    
+                    provider_id = st.selectbox("Provider", options=provider_options.keys(), format_func=provider_options.get)
+                    service_type_id = st.selectbox("Type", options=type_options.keys(), format_func=type_options.get)
+                    category_id = st.selectbox("Category", options=category_options.keys(), format_func=category_options.get)
                     annual_cost = st.number_input("Annual Cost ($)", min_value=0.0, format="%.2f")
                     renewal_date = st.date_input("Next Renewal Date", value=datetime.date.today())
                     integrations = st.text_area("Known Integrations")
@@ -364,7 +384,7 @@ def main():
 
         st.subheader("Edit or Delete an Application")
         app_options = dict(zip(applications_df['id'], applications_df['name']))
-        app_to_edit_id = st.selectbox("Select an application to edit or delete", options=[None] + list(app_options.keys()), format_func=lambda x: "---" if x is None else app_options.get(x))
+        app_to_edit_id = st.selectbox("Select an application", options=[None] + list(app_options.keys()), format_func=lambda x: "---" if x is None else app_options.get(x), key="edit_app_select")
 
         if app_to_edit_id:
             app_details = get_application_details(app_to_edit_id)
@@ -373,13 +393,13 @@ def main():
                 edit_name = st.text_input("Application Name", value=app_details['name'])
                 
                 default_provider_index = list(provider_options.keys()).index(app_details['provider_id']) if app_details.get('provider_id') in provider_options else 0
-                edit_provider_id = st.selectbox("Provider", options=provider_options.keys(), format_func=lambda x: provider_options.get(x), index=default_provider_index)
+                edit_provider_id = st.selectbox("Provider", options=provider_options.keys(), format_func=provider_options.get, index=default_provider_index)
                 
                 default_type_index = list(type_options.keys()).index(app_details['service_type_id']) if app_details.get('service_type_id') in type_options else 0
-                edit_type_id = st.selectbox("Type", options=type_options.keys(), format_func=lambda x: type_options.get(x), index=default_type_index)
+                edit_type_id = st.selectbox("Type", options=type_options.keys(), format_func=type_options.get, index=default_type_index)
                 
                 default_cat_index = list(category_options.keys()).index(app_details['category_id']) if app_details.get('category_id') in category_options else 0
-                edit_category_id = st.selectbox("Category", options=category_options.keys(), format_func=lambda x: category_options.get(x), index=default_cat_index)
+                edit_category_id = st.selectbox("Category", options=category_options.keys(), format_func=category_options.get, index=default_cat_index)
 
                 edit_annual_cost = st.number_input("Annual Cost ($)", min_value=0.0, format="%.2f", value=float(app_details.get('annual_cost') or 0.0))
                 edit_renewal = st.date_input("Next Renewal Date", value=pd.to_datetime(app_details['renewal_date']))
@@ -399,40 +419,76 @@ def main():
     # --- IT SERVICES TAB ---
     with service_tab:
         st.header("Manage Internal IT Services")
-        st.write("Track internal services like 'Help Desk' or 'Classroom Support'.")
+        sla_levels_df = get_lookup_data('sla_levels')
+        service_methods_df = get_lookup_data('service_methods')
+        sla_options = dict(zip(sla_levels_df['id'], sla_levels_df['name']))
+        method_options = dict(zip(service_methods_df['id'], service_methods_df['name']))
         
         with st.expander("➕ Add New IT Service"):
             with st.form("add_it_service_form", clear_on_submit=True):
                 it_service_name = st.text_input("Service Name")
+                provider_id = st.selectbox("Associated Provider (Optional)", options=[None] + list(provider_options.keys()), format_func=lambda x: "None" if x is None else provider_options.get(x), key="add_it_provider")
+                status = st.selectbox("Status", options=["Active", "In Development", "Retired"])
+                service_owner = st.text_input("Service Owner/Lead")
+                fte_count = st.number_input("Dedicated FTEs", min_value=0, step=1)
+                sla_id = st.selectbox("SLA Level", options=[None] + list(sla_options.keys()), format_func=lambda x: "None" if x is None else sla_options.get(x))
+                method_id = st.selectbox("Service Method", options=[None] + list(method_options.keys()), format_func=lambda x: "None" if x is None else method_options.get(x))
                 it_service_desc = st.text_area("Description")
-                if st.form_submit_button("Add Service"):
-                    add_it_service(it_service_name, it_service_desc)
+                dependencies = st.text_area("Dependencies (e.g., other apps, services)")
+                
+                if st.form_submit_button("Add Service") and it_service_name:
+                    add_it_service(it_service_name, it_service_desc, provider_id, fte_count, dependencies, service_owner, status, sla_id, method_id)
                     st.success(f"Added service: {it_service_name}")
                     st.rerun()
-        
+
         it_services_df = get_it_services()
         st.dataframe(it_services_df, width='stretch')
-
+        
         st.subheader("Edit or Delete an IT Service")
         it_service_options = dict(zip(it_services_df['id'], it_services_df['name']))
-        it_service_to_edit_id = st.selectbox("Select a service to edit or delete", options=[None] + list(it_service_options.keys()), format_func=lambda x: "---" if x is None else it_service_options.get(x))
+        it_service_to_edit_id = st.selectbox("Select a service", options=[None] + list(it_service_options.keys()), format_func=lambda x: "---" if x is None else it_service_options.get(x), key="edit_it_service_select")
 
         if it_service_to_edit_id:
             it_service_details = get_it_service_details(it_service_to_edit_id)
             with st.form(f"edit_it_service_{it_service_to_edit_id}"):
                 st.write(f"**Editing: {it_service_details['name']}**")
                 edit_it_name = st.text_input("Service Name", value=it_service_details['name'])
-                edit_it_desc = st.text_area("Description", value=it_service_details.get('description') or '')
                 
+                provider_keys = [None] + list(provider_options.keys())
+                default_provider_id = it_service_details.get('provider_id')
+                default_provider_index = provider_keys.index(default_provider_id) if default_provider_id in provider_keys else 0
+                edit_provider_id = st.selectbox("Associated Provider", options=provider_keys, format_func=lambda x: "None" if x is None else provider_options.get(x), index=default_provider_index, key="edit_it_provider")
+
+                status_options = ["Active", "In Development", "Retired"]
+                default_status = it_service_details.get('status')
+                default_status_index = status_options.index(default_status) if default_status in status_options else 0
+                edit_status = st.selectbox("Status", options=status_options, index=default_status_index)
+                
+                sla_keys = [None] + list(sla_options.keys())
+                default_sla_id = it_service_details.get('sla_level_id')
+                default_sla_index = sla_keys.index(default_sla_id) if default_sla_id in sla_keys else 0
+                edit_sla_id = st.selectbox("SLA Level", options=sla_keys, format_func=lambda x: "None" if x is None else sla_options.get(x), index=default_sla_index)
+
+                method_keys = [None] + list(method_options.keys())
+                default_method_id = it_service_details.get('service_method_id')
+                default_method_index = method_keys.index(default_method_id) if default_method_id in method_keys else 0
+                edit_method_id = st.selectbox("Service Method", options=method_keys, format_func=lambda x: "None" if x is None else method_options.get(x), index=default_method_index)
+
+                edit_service_owner = st.text_input("Service Owner/Lead", value=it_service_details.get('service_owner') or '')
+                edit_fte_count = st.number_input("Dedicated FTEs", min_value=0, step=1, value=int(it_service_details.get('fte_count') or 0))
+                edit_it_desc = st.text_area("Description", value=it_service_details.get('description') or '')
+                edit_dependencies = st.text_area("Dependencies", value=it_service_details.get('dependencies') or '')
+
                 del_col, save_col = st.columns([1, 6])
                 if save_col.form_submit_button("Save Changes", width='stretch'):
-                    update_it_service(it_service_to_edit_id, edit_it_name, edit_it_desc)
+                    update_it_service(it_service_to_edit_id, edit_it_name, edit_it_desc, edit_provider_id, edit_fte_count, edit_dependencies, edit_service_owner, edit_status, edit_sla_id, edit_method_id)
                     st.success(f"Updated {edit_it_name}")
                     st.rerun()
                 if del_col.form_submit_button("DELETE", type="primary"):
                     delete_it_service(it_service_to_edit_id)
                     st.warning(f"Deleted service: {it_service_details['name']}")
                     st.rerun()
+
 
     # --- DASHBOARD TAB ---
     with dashboard_tab:
@@ -463,31 +519,20 @@ def main():
     # --- SETTINGS TAB ---
     with settings_tab:
         st.header("Manage Lookups")
-        st.subheader("Manage Application Types and Categories")
         
-        m_col1, m_col2 = st.columns(2)
-        with m_col1:
-            st.write("#### Application Types")
-            with st.form("add_type_form", clear_on_submit=True):
-                new_type_name = st.text_input("New Type Name")
-                if st.form_submit_button("Add Type"):
-                    add_service_type(new_type_name); st.rerun()
-            for _, row in service_types.iterrows():
-                l_col, r_col = st.columns([4,1])
-                l_col.write(row['name'])
-                if r_col.button("🗑️", key=f"del_type_{row['id']}"):
-                    delete_service_type(row['id']); st.rerun()
-        with m_col2:
-            st.write("#### Categories")
-            with st.form("add_cat_form", clear_on_submit=True):
-                new_cat_name = st.text_input("New Category Name")
-                if st.form_submit_button("Add Category"):
-                    add_category(new_cat_name); st.rerun()
-            for _, row in categories.iterrows():
-                l_col, r_col = st.columns([4,1])
-                l_col.write(row['name'])
-                if r_col.button("🗑️", key=f"del_cat_{row['id']}"):
-                    delete_category(row['id']); st.rerun()
+        type_col, cat_col = st.columns(2)
+        with type_col:
+            render_lookup_manager("Application Types", "Application Type", "service_types")
+        with cat_col:
+            render_lookup_manager("Categories", "Category", "categories")
+
+        st.divider()
+
+        sla_col, method_col = st.columns(2)
+        with sla_col:
+            render_lookup_manager("SLA Levels", "SLA Level", "sla_levels")
+        with method_col:
+            render_lookup_manager("Service Methods", "Service Method", "service_methods")
 
 if __name__ == '__main__':
     main()
