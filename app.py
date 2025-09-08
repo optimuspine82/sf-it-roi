@@ -287,6 +287,11 @@ def delete_it_service(service_id):
 
 # --- STREAMLIT UI ---
 
+@st.cache_data
+def convert_df_to_csv(df):
+    """Helper function to convert a DataFrame to a CSV string."""
+    return df.to_csv(index=False).encode('utf-8')
+
 def render_lookup_manager(title, singular_name, table_name):
     st.write(f"#### {title}")
     with st.form(f"add_{table_name}_form", clear_on_submit=True):
@@ -370,6 +375,15 @@ def main():
 
         st.subheader("All Providers")
         st.dataframe(filtered_providers_df, width='stretch')
+        
+        csv_providers = convert_df_to_csv(filtered_providers_df)
+        st.download_button(
+            label="Download data as CSV",
+            data=csv_providers,
+            file_name='providers_export.csv',
+            mime='text/csv',
+        )
+
 
     # --- APPLICATIONS TAB ---
     with app_tab:
@@ -383,14 +397,12 @@ def main():
             if providers_df_all.empty or service_types_df.empty or categories_df.empty:
                 st.warning("Please add at least one Provider, Application Type, and Category in Settings.")
             else:
-                # Provider selection is OUTSIDE the form for interactivity
                 provider_list = ["--- Select a Provider ---"] + list(provider_options_all.values()) + ["--- Add a new provider ---"]
                 provider_selection = st.selectbox("Provider", options=provider_list, key="app_provider_selection")
 
                 with st.form("add_app_form", clear_on_submit=True):
                     app_name = st.text_input("Application Name")
                     
-                    # Conditional text input for new provider INSIDE the form
                     new_provider_name = ""
                     if provider_selection == "--- Add a new provider ---":
                         new_provider_name = st.text_input("Enter New Provider Name")
@@ -439,6 +451,14 @@ def main():
             filtered_apps_df = filtered_apps_df[filtered_apps_df['category'].isin(filter_category)]
 
         st.dataframe(filtered_apps_df, width='stretch')
+        
+        csv_apps = convert_df_to_csv(filtered_apps_df)
+        st.download_button(
+            label="Download data as CSV",
+            data=csv_apps,
+            file_name='applications_export.csv',
+            mime='text/csv',
+        )
 
         st.subheader("Edit or Delete an Application")
         app_options_all = dict(zip(applications_df['id'], applications_df['name']))
@@ -537,6 +557,14 @@ def main():
             filtered_its_df = filtered_its_df[filtered_its_df['service_method'].isin(filter_method_its)]
 
         st.dataframe(filtered_its_df, width='stretch')
+
+        csv_its = convert_df_to_csv(filtered_its_df)
+        st.download_button(
+            label="Download data as CSV",
+            data=csv_its,
+            file_name='it_services_export.csv',
+            mime='text/csv',
+        )
         
         st.subheader("Edit or Delete an IT Service")
         it_service_options_all = dict(zip(it_services_df['id'], it_services_df['name']))
