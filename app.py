@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 from pathlib import Path
 import datetime
+import plotly.express as px
 
 # --- DATABASE SETUP ---
 DB_FILE = "portfolio.db"
@@ -136,14 +137,23 @@ def get_provider_details(provider_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_provider(name, contact_person, contact_email, total_fte, budget_amount, notes):
+def add_provider(name, contact_person="", contact_email="", total_fte=0, budget_amount=0.0, notes=""):
+    """Adds a new provider if the name doesn't exist, returns the provider's ID."""
     with get_connection() as con:
         cur = con.cursor()
+        cur.execute("SELECT id FROM providers WHERE name = ?", (name,))
+        existing = cur.fetchone()
+        if existing:
+            st.warning(f"Provider '{name}' already exists.")
+            return existing[0]
+
         cur.execute("""
             INSERT INTO providers (name, contact_person, contact_email, total_fte, budget_amount, notes)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (name, contact_person, contact_email, total_fte, budget_amount, notes))
         con.commit()
+        st.success(f"Added new provider: {name}")
+        return cur.lastrowid
 
 def update_provider_details(provider_id, name, contact_person, contact_email, total_fte, budget_amount, notes):
     with get_connection() as con:
@@ -305,8 +315,8 @@ def main():
     provider_tab, app_tab, service_tab, dashboard_tab, settings_tab = st.tabs(tab_names)
 
     # Pre-load data for dropdowns
-    providers_df = get_providers()
-    provider_options = dict(zip(providers_df['id'], providers_df['name']))
+    providers_df_all = get_providers()
+    provider_options_all = dict(zip(providers_df_all['id'], providers_df_all['name']))
 
     # --- PROVIDERS TAB ---
     with provider_tab:
@@ -322,10 +332,19 @@ def main():
                 notes = st.text_area("Notes", height=150)
                 if st.form_submit_button("Add Provider") and name:
                     add_provider(name, contact_person, contact_email, total_fte, budget_amount, notes)
-                    st.success(f"Added: {name}")
                     st.rerun()
+        
+        st.divider()
+        search_provider = st.text_input("Search Providers by Name")
+        
+        filtered_providers_df = providers_df_all
+        if search_provider:
+            filtered_providers_df = providers_df_all[providers_df_all['name'].str.contains(search_provider, case=False, na=False)]
 
         st.subheader("Edit or Delete a Provider")
+        
+        provider_options = dict(zip(filtered_providers_df['id'], filtered_providers_df['name']))
+
         provider_to_edit_id = st.selectbox("Select a provider", options=[None] + list(provider_options.keys()), format_func=lambda x: "---" if x is None else provider_options.get(x), key="edit_provider_select")
 
         if provider_to_edit_id:
@@ -350,41 +369,80 @@ def main():
                     st.rerun()
 
         st.subheader("All Providers")
-        st.dataframe(providers_df, width='stretch')
+        st.dataframe(filtered_providers_df, width='stretch')
 
     # --- APPLICATIONS TAB ---
     with app_tab:
         st.header("Manage Applications")
         service_types_df = get_lookup_data('service_types')
         categories_df = get_lookup_data('categories')
-        type_options = dict(zip(service_types_df['id'], service_types_df['name']))
-        category_options = dict(zip(categories_df['id'], categories_df['name']))
+        type_options_all = dict(zip(service_types_df['id'], service_types_df['name']))
+        category_options_all = dict(zip(categories_df['id'], categories_df['name']))
 
         with st.expander("➕ Add New Application"):
-            if providers_df.empty or service_types_df.empty or categories_df.empty:
+            if providers_df_all.empty or service_types_df.empty or categories_df.empty:
                 st.warning("Please add at least one Provider, Application Type, and Category in Settings.")
             else:
+                # Provider selection is OUTSIDE the form for interactivity
+                provider_list = ["--- Select a Provider ---"] + list(provider_options_all.values()) + ["--- Add a new provider ---"]
+                provider_selection = st.selectbox("Provider", options=provider_list, key="app_provider_selection")
+
                 with st.form("add_app_form", clear_on_submit=True):
                     app_name = st.text_input("Application Name")
-                    provider_id = st.selectbox("Provider", options=provider_options.keys(), format_func=provider_options.get)
-                    service_type_id = st.selectbox("Type", options=type_options.keys(), format_func=type_options.get)
-                    category_id = st.selectbox("Category", options=category_options.keys(), format_func=category_options.get)
+                    
+                    # Conditional text input for new provider INSIDE the form
+                    new_provider_name = ""
+                    if provider_selection == "--- Add a new provider ---":
+                        new_provider_name = st.text_input("Enter New Provider Name")
+
+                    service_type_id = st.selectbox("Type", options=type_options_all.keys(), format_func=type_options_all.get)
+                    category_id = st.selectbox("Category", options=category_options_all.keys(), format_func=category_options_all.get)
                     annual_cost = st.number_input("Annual Cost ($)", min_value=0.0, format="%.2f")
                     renewal_date = st.date_input("Next Renewal Date", value=datetime.date.today())
                     integrations = st.text_area("Known Integrations")
                     other_units = st.text_area("Other Business Units Using Service", height=100)
                     
                     if st.form_submit_button("Save Application") and app_name:
-                        add_application(provider_id, app_name, service_type_id, category_id, annual_cost, str(renewal_date), integrations, other_units)
-                        st.success(f"Added application: {app_name}")
-                        st.rerun()
+                        final_provider_id = None
+                        if new_provider_name.strip():
+                            final_provider_id = add_provider(name=new_provider_name)
+                        elif provider_selection not in ["--- Select a Provider ---", "--- Add a new provider ---"]:
+                            name_to_id_map = {v: k for k, v in provider_options_all.items()}
+                            final_provider_id = name_to_id_map.get(provider_selection)
+                        
+                        if final_provider_id:
+                            add_application(final_provider_id, app_name, service_type_id, category_id, annual_cost, str(renewal_date), integrations, other_units)
+                            st.success(f"Added application: {app_name}")
+                            st.rerun()
+                        else:
+                            st.error("Please select or add a provider.")
 
+        st.divider()
+
+        st.subheader("Filter and Search Applications")
+        fcol1, fcol2, fcol3, fcol4 = st.columns(4)
+        search_app = fcol1.text_input("Search by Name")
+        filter_provider = fcol2.multiselect("Filter by Provider", options=provider_options_all.values())
+        filter_type = fcol3.multiselect("Filter by Type", options=type_options_all.values())
+        filter_category = fcol4.multiselect("Filter by Category", options=category_options_all.values())
+        
         applications_df = get_applications()
-        st.dataframe(applications_df, width='stretch')
+        filtered_apps_df = applications_df.copy()
+
+        if search_app:
+            filtered_apps_df = filtered_apps_df[filtered_apps_df['name'].str.contains(search_app, case=False, na=False)]
+        if filter_provider:
+            filtered_apps_df = filtered_apps_df[filtered_apps_df['provider'].isin(filter_provider)]
+        if filter_type:
+            filtered_apps_df = filtered_apps_df[filtered_apps_df['type'].isin(filter_type)]
+        if filter_category:
+            filtered_apps_df = filtered_apps_df[filtered_apps_df['category'].isin(filter_category)]
+
+        st.dataframe(filtered_apps_df, width='stretch')
 
         st.subheader("Edit or Delete an Application")
-        app_options = dict(zip(applications_df['id'], applications_df['name']))
-        app_to_edit_id = st.selectbox("Select an application", options=[None] + list(app_options.keys()), format_func=lambda x: "---" if x is None else app_options.get(x), key="edit_app_select")
+        app_options_all = dict(zip(applications_df['id'], applications_df['name']))
+        app_to_edit_id = st.selectbox("Select an application", options=[None] + list(app_options_all.keys()), format_func=lambda x: "---" if x is None else app_options_all.get(x), key="edit_app_select")
 
         if app_to_edit_id:
             app_details = get_application_details(app_to_edit_id)
@@ -392,14 +450,14 @@ def main():
                 st.write(f"**Editing: {app_details['name']}**")
                 edit_name = st.text_input("Application Name", value=app_details['name'])
                 
-                default_provider_index = list(provider_options.keys()).index(app_details['provider_id']) if app_details.get('provider_id') in provider_options else 0
-                edit_provider_id = st.selectbox("Provider", options=provider_options.keys(), format_func=provider_options.get, index=default_provider_index)
+                default_provider_index = list(provider_options_all.keys()).index(app_details['provider_id']) if app_details.get('provider_id') in provider_options_all else 0
+                edit_provider_id = st.selectbox("Provider", options=provider_options_all.keys(), format_func=provider_options_all.get, index=default_provider_index)
                 
-                default_type_index = list(type_options.keys()).index(app_details['service_type_id']) if app_details.get('service_type_id') in type_options else 0
-                edit_type_id = st.selectbox("Type", options=type_options.keys(), format_func=type_options.get, index=default_type_index)
+                default_type_index = list(type_options_all.keys()).index(app_details['service_type_id']) if app_details.get('service_type_id') in type_options_all else 0
+                edit_type_id = st.selectbox("Type", options=type_options_all.keys(), format_func=type_options_all.get, index=default_type_index)
                 
-                default_cat_index = list(category_options.keys()).index(app_details['category_id']) if app_details.get('category_id') in category_options else 0
-                edit_category_id = st.selectbox("Category", options=category_options.keys(), format_func=category_options.get, index=default_cat_index)
+                default_cat_index = list(category_options_all.keys()).index(app_details['category_id']) if app_details.get('category_id') in category_options_all else 0
+                edit_category_id = st.selectbox("Category", options=category_options_all.keys(), format_func=category_options_all.get, index=default_cat_index)
 
                 edit_annual_cost = st.number_input("Annual Cost ($)", min_value=0.0, format="%.2f", value=float(app_details.get('annual_cost') or 0.0))
                 edit_renewal = st.date_input("Next Renewal Date", value=pd.to_datetime(app_details['renewal_date']))
@@ -421,32 +479,68 @@ def main():
         st.header("Manage Internal IT Services")
         sla_levels_df = get_lookup_data('sla_levels')
         service_methods_df = get_lookup_data('service_methods')
-        sla_options = dict(zip(sla_levels_df['id'], sla_levels_df['name']))
-        method_options = dict(zip(service_methods_df['id'], service_methods_df['name']))
+        sla_options_all = dict(zip(sla_levels_df['id'], sla_levels_df['name']))
+        method_options_all = dict(zip(service_methods_df['id'], service_methods_df['name']))
         
         with st.expander("➕ Add New IT Service"):
+            provider_list_it = ["--- Select a Provider (Optional) ---"] + list(provider_options_all.values()) + ["--- Add a new provider ---"]
+            provider_selection_it = st.selectbox("Associated Provider", options=provider_list_it, key="it_provider_select")
+
             with st.form("add_it_service_form", clear_on_submit=True):
                 it_service_name = st.text_input("Service Name")
-                provider_id = st.selectbox("Associated Provider (Optional)", options=[None] + list(provider_options.keys()), format_func=lambda x: "None" if x is None else provider_options.get(x), key="add_it_provider")
+
+                new_provider_name_it = ""
+                if provider_selection_it == "--- Add a new provider ---":
+                    new_provider_name_it = st.text_input("Enter New Provider Name", key="it_new_provider")
+
                 status = st.selectbox("Status", options=["Active", "In Development", "Retired"])
                 service_owner = st.text_input("Service Owner/Lead")
                 fte_count = st.number_input("Dedicated FTEs", min_value=0, step=1)
-                sla_id = st.selectbox("SLA Level", options=[None] + list(sla_options.keys()), format_func=lambda x: "None" if x is None else sla_options.get(x))
-                method_id = st.selectbox("Service Method", options=[None] + list(method_options.keys()), format_func=lambda x: "None" if x is None else method_options.get(x))
+                sla_id = st.selectbox("SLA Level", options=[None] + list(sla_options_all.keys()), format_func=lambda x: "None" if x is None else sla_options_all.get(x))
+                method_id = st.selectbox("Service Method", options=[None] + list(method_options_all.keys()), format_func=lambda x: "None" if x is None else method_options_all.get(x))
                 it_service_desc = st.text_area("Description")
                 dependencies = st.text_area("Dependencies (e.g., other apps, services)")
                 
                 if st.form_submit_button("Add Service") and it_service_name:
-                    add_it_service(it_service_name, it_service_desc, provider_id, fte_count, dependencies, service_owner, status, sla_id, method_id)
+                    final_provider_id_it = None
+                    if new_provider_name_it.strip():
+                        final_provider_id_it = add_provider(name=new_provider_name_it)
+                    elif provider_selection_it not in ["--- Select a Provider (Optional) ---", "--- Add a new provider ---"]:
+                        name_to_id_map = {v: k for k, v in provider_options_all.items()}
+                        final_provider_id_it = name_to_id_map.get(provider_selection_it)
+                    
+                    add_it_service(it_service_name, it_service_desc, final_provider_id_it, fte_count, dependencies, service_owner, status, sla_id, method_id)
                     st.success(f"Added service: {it_service_name}")
                     st.rerun()
+        
+        st.divider()
+        st.subheader("Filter and Search IT Services")
+        fscol1, fscol2, fscol3, fscol4, fscol5 = st.columns(5)
+        search_its = fscol1.text_input("Search by Name", key="it_search")
+        filter_provider_its = fscol2.multiselect("Provider", options=provider_options_all.values(), key="it_prov_filter")
+        filter_status_its = fscol3.multiselect("Status", options=["Active", "In Development", "Retired"], key="it_status_filter")
+        filter_sla_its = fscol4.multiselect("SLA Level", options=sla_options_all.values(), key="it_sla_filter")
+        filter_method_its = fscol5.multiselect("Method", options=method_options_all.values(), key="it_method_filter")
 
         it_services_df = get_it_services()
-        st.dataframe(it_services_df, width='stretch')
+        filtered_its_df = it_services_df.copy()
+
+        if search_its:
+            filtered_its_df = filtered_its_df[filtered_its_df['name'].str.contains(search_its, case=False, na=False)]
+        if filter_provider_its:
+            filtered_its_df = filtered_its_df[filtered_its_df['provider'].isin(filter_provider_its)]
+        if filter_status_its:
+            filtered_its_df = filtered_its_df[filtered_its_df['status'].isin(filter_status_its)]
+        if filter_sla_its:
+            filtered_its_df = filtered_its_df[filtered_its_df['sla_level'].isin(filter_sla_its)]
+        if filter_method_its:
+            filtered_its_df = filtered_its_df[filtered_its_df['service_method'].isin(filter_method_its)]
+
+        st.dataframe(filtered_its_df, width='stretch')
         
         st.subheader("Edit or Delete an IT Service")
-        it_service_options = dict(zip(it_services_df['id'], it_services_df['name']))
-        it_service_to_edit_id = st.selectbox("Select a service", options=[None] + list(it_service_options.keys()), format_func=lambda x: "---" if x is None else it_service_options.get(x), key="edit_it_service_select")
+        it_service_options_all = dict(zip(it_services_df['id'], it_services_df['name']))
+        it_service_to_edit_id = st.selectbox("Select a service", options=[None] + list(it_service_options_all.keys()), format_func=lambda x: "---" if x is None else it_service_options_all.get(x), key="edit_it_service_select")
 
         if it_service_to_edit_id:
             it_service_details = get_it_service_details(it_service_to_edit_id)
@@ -454,25 +548,25 @@ def main():
                 st.write(f"**Editing: {it_service_details['name']}**")
                 edit_it_name = st.text_input("Service Name", value=it_service_details['name'])
                 
-                provider_keys = [None] + list(provider_options.keys())
+                provider_keys = [None] + list(provider_options_all.keys())
                 default_provider_id = it_service_details.get('provider_id')
                 default_provider_index = provider_keys.index(default_provider_id) if default_provider_id in provider_keys else 0
-                edit_provider_id = st.selectbox("Associated Provider", options=provider_keys, format_func=lambda x: "None" if x is None else provider_options.get(x), index=default_provider_index, key="edit_it_provider")
+                edit_provider_id = st.selectbox("Associated Provider", options=provider_keys, format_func=lambda x: "None" if x is None else provider_options_all.get(x), index=default_provider_index, key="edit_it_provider")
 
                 status_options = ["Active", "In Development", "Retired"]
                 default_status = it_service_details.get('status')
                 default_status_index = status_options.index(default_status) if default_status in status_options else 0
                 edit_status = st.selectbox("Status", options=status_options, index=default_status_index)
                 
-                sla_keys = [None] + list(sla_options.keys())
+                sla_keys = [None] + list(sla_options_all.keys())
                 default_sla_id = it_service_details.get('sla_level_id')
                 default_sla_index = sla_keys.index(default_sla_id) if default_sla_id in sla_keys else 0
-                edit_sla_id = st.selectbox("SLA Level", options=sla_keys, format_func=lambda x: "None" if x is None else sla_options.get(x), index=default_sla_index)
+                edit_sla_id = st.selectbox("SLA Level", options=sla_keys, format_func=lambda x: "None" if x is None else sla_options_all.get(x), index=default_sla_index)
 
-                method_keys = [None] + list(method_options.keys())
+                method_keys = [None] + list(method_options_all.keys())
                 default_method_id = it_service_details.get('service_method_id')
                 default_method_index = method_keys.index(default_method_id) if default_method_id in method_keys else 0
-                edit_method_id = st.selectbox("Service Method", options=method_keys, format_func=lambda x: "None" if x is None else method_options.get(x), index=default_method_index)
+                edit_method_id = st.selectbox("Service Method", options=method_keys, format_func=lambda x: "None" if x is None else method_options_all.get(x), index=default_method_index)
 
                 edit_service_owner = st.text_input("Service Owner/Lead", value=it_service_details.get('service_owner') or '')
                 edit_fte_count = st.number_input("Dedicated FTEs", min_value=0, step=1, value=int(it_service_details.get('fte_count') or 0))
@@ -505,16 +599,41 @@ def main():
         metric_col2.metric("Total Applications", total_apps)
         metric_col3.metric("Total Annual Cost", f"${total_annual_cost:,.2f}")
 
-        st.subheader("Potential Overlaps by Category")
         if not all_apps_df.empty:
+            st.divider()
+            st.subheader("Visual Insights")
+
+            chart_col1, chart_col2 = st.columns(2)
+
+            with chart_col1:
+                # Chart 1: Cost by Provider
+                cost_by_provider = all_apps_df.groupby('provider')['annual_cost'].sum().reset_index()
+                fig_provider_cost = px.pie(cost_by_provider, names='provider', values='annual_cost', title='Annual Cost by Provider')
+                st.plotly_chart(fig_provider_cost, use_container_width=True)
+
+                # Chart 3: Cost by Application Type
+                cost_by_type = all_apps_df.groupby('type')['annual_cost'].sum().reset_index()
+                fig_type_cost = px.pie(cost_by_type, names='type', values='annual_cost', title='Annual Cost by Application Type')
+                st.plotly_chart(fig_type_cost, use_container_width=True)
+
+
+            with chart_col2:
+                # Chart 2: Apps by Category
+                apps_by_category = all_apps_df['category'].value_counts().reset_index()
+                apps_by_category.columns = ['category', 'count']
+                fig_app_category = px.bar(apps_by_category, x='category', y='count', title='Application Count by Category')
+                st.plotly_chart(fig_app_category, use_container_width=True)
+
+            st.divider()
+            st.subheader("Potential Overlaps by Category")
             duplicates = all_apps_df.dropna(subset=['category'])[all_apps_df.dropna(subset=['category']).duplicated(subset=['category'], keep=False)].sort_values(by='category')
             if not duplicates.empty:
-                st.warning("Found applications in the same category across different providers. Review for potential consolidation.")
+                st.warning("Found applications in the same category. Review for potential consolidation.")
                 st.dataframe(duplicates[['provider', 'name', 'category', 'annual_cost']], width='stretch')
             else:
                 st.success("No overlapping application categories found.")
         else:
-            st.info("Add applications to generate recommendations.")
+            st.info("Add applications to generate recommendations and view charts.")
 
     # --- SETTINGS TAB ---
     with settings_tab:
