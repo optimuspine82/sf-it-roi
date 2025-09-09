@@ -9,5 +9,5 @@ ALLOWED_EMAILS = {
     "rjlibunao@unc.edu",
     "kathy_anderson@unc.edu",
     "edmunds@unc.edu",
-    "philk@unc.edu"
+    "philk@unc.edu",
 }
