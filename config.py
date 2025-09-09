@@ -8,5 +8,6 @@ ALLOWED_EMAILS = {
     "jill_jemison@med.unc.edu",
     "rjlibunao@unc.edu",
     "kathy_anderson@unc.edu",
-    "edmunds@unc.edu"
+    "edmunds@unc.edu",
+    "philk@unc.edu"
 }

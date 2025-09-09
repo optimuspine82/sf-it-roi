@@ -83,21 +83,19 @@ def init_db():
         cur.execute("PRAGMA table_info(applications)")
         app_columns = [info[1] for info in cur.fetchall()]
         
-        # Migration: provider_id to it_unit_id
         if 'provider_id' in app_columns:
             cur.execute("ALTER TABLE applications RENAME COLUMN provider_id TO it_unit_id")
+            cur.execute("PRAGMA table_info(applications)") # Refresh columns after rename
+            app_columns = [info[1] for info in cur.fetchall()]
 
         required_app_columns = {
-            "it_unit_id": "INTEGER REFERENCES it_units(id)",
-            "vendor_id": "INTEGER REFERENCES vendors(id)",
-            "renewal_date": "TEXT", "annual_cost": "REAL",
-            "service_type_id": "INTEGER REFERENCES service_types(id)",
-            "category_id": "INTEGER REFERENCES categories(id)",
-            "integrations": "TEXT", "other_units": "TEXT",
+            "it_unit_id": "INTEGER REFERENCES it_units(id)", "vendor_id": "INTEGER REFERENCES vendors(id)",
+            "renewal_date": "TEXT", "annual_cost": "REAL", "service_type_id": "INTEGER REFERENCES service_types(id)",
+            "category_id": "INTEGER REFERENCES categories(id)", "integrations": "TEXT", "other_units": "TEXT",
             "similar_applications": "TEXT"
         }
         for col, col_type in required_app_columns.items():
-            if col not in app_columns and col != 'it_unit_id': # Avoid re-adding renamed column
+            if col not in app_columns:
                 cur.execute(f"ALTER TABLE applications ADD COLUMN {col} {col_type}")
 
         # --- IT Services Table Setup & Migration ---
@@ -105,10 +103,11 @@ def init_db():
         cur.execute("PRAGMA table_info(it_services)")
         it_services_columns = [info[1] for info in cur.fetchall()]
         
-        # Migration: provider_id to it_unit_id
         if 'provider_id' in it_services_columns:
             cur.execute("ALTER TABLE it_services RENAME COLUMN provider_id TO it_unit_id")
-        
+            cur.execute("PRAGMA table_info(it_services)") # Refresh columns after rename
+            it_services_columns = [info[1] for info in cur.fetchall()]
+
         required_it_services_columns = {
             "it_unit_id": "INTEGER REFERENCES it_units(id)", "fte_count": "INTEGER",
             "dependencies": "TEXT", "service_owner": "TEXT", "status": "TEXT",
@@ -117,7 +116,7 @@ def init_db():
             "budget_allocation": "REAL"
         }
         for col, col_type in required_it_services_columns.items():
-            if col not in it_services_columns and col != 'it_unit_id':
+            if col not in it_services_columns:
                 cur.execute(f"ALTER TABLE it_services ADD COLUMN {col} {col_type}")
 
         con.commit()
