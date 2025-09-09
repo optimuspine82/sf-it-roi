@@ -10,4 +10,5 @@ ALLOWED_EMAILS = {
     "kathy_anderson@unc.edu",
     "edmunds@unc.edu",
     "philk@unc.edu",
+    "brian.cass@unc.edu",
 }
