@@ -92,7 +92,7 @@ def init_db():
             "it_unit_id": "INTEGER REFERENCES it_units(id)", "vendor_id": "INTEGER REFERENCES vendors(id)",
             "renewal_date": "TEXT", "annual_cost": "REAL", "service_type_id": "INTEGER REFERENCES service_types(id)",
             "category_id": "INTEGER REFERENCES categories(id)", "integrations": "TEXT", "other_units": "TEXT",
-            "similar_applications": "TEXT"
+            "similar_applications": "TEXT", "service_owner": "TEXT"
         }
         for col, col_type in required_app_columns.items():
             if col not in app_columns:
@@ -207,7 +207,8 @@ def get_applications():
         query = """
             SELECT
                 a.id, a.name, iu.name as managing_it_unit, v.name as vendor, 
-                st.name as type, c.name as category, a.annual_cost, a.renewal_date, a.similar_applications
+                st.name as type, c.name as category, a.annual_cost, a.renewal_date, 
+                a.similar_applications, a.service_owner
             FROM applications a
             LEFT JOIN it_units iu ON a.it_unit_id = iu.id
             LEFT JOIN vendors v ON a.vendor_id = v.id
@@ -224,23 +225,23 @@ def get_application_details(app_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_application(it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps):
+def add_application(it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, service_owner):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute(
-            """INSERT INTO applications (it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_applications)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps)
+            """INSERT INTO applications (it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_applications, service_owner)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, service_owner)
         )
         con.commit()
 
-def update_application(app_id, it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps):
+def update_application(app_id, it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, service_owner):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute(
-            """UPDATE applications SET it_unit_id=?, vendor_id=?, name=?, service_type_id=?, category_id=?, annual_cost=?, renewal_date=?, integrations=?, other_units=?, similar_applications=?
+            """UPDATE applications SET it_unit_id=?, vendor_id=?, name=?, service_type_id=?, category_id=?, annual_cost=?, renewal_date=?, integrations=?, other_units=?, similar_applications=?, service_owner=?
                WHERE id=?""",
-            (it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, app_id)
+            (it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, service_owner, app_id)
         )
         con.commit()
 
@@ -418,6 +419,7 @@ def main():
             else:
                 with st.form("add_app_form", clear_on_submit=True):
                     app_name = st.text_input("Application Name")
+                    service_owner = st.text_input("Service Owner/Lead")
                     it_unit_id = st.selectbox("Managing IT Unit", options=it_unit_options_all.keys(), format_func=it_unit_options_all.get)
                     vendor_id = st.selectbox("Vendor (Optional, for external apps)", options=[None] + list(vendor_options_all.keys()), format_func=lambda x: "None (Internal)" if x is None else vendor_options_all.get(x))
                     service_type_id = st.selectbox("Type", options=type_options_all.keys(), format_func=type_options_all.get)
@@ -429,7 +431,7 @@ def main():
                     similar_apps = st.text_area("Similar Applications (if any)")
                     
                     if st.form_submit_button("Save Application") and app_name:
-                        add_application(it_unit_id, vendor_id, app_name, service_type_id, category_id, annual_cost, str(renewal_date), integrations, other_units, similar_apps)
+                        add_application(it_unit_id, vendor_id, app_name, service_type_id, category_id, annual_cost, str(renewal_date), integrations, other_units, similar_apps, service_owner)
                         st.success(f"Added application: {app_name}")
                         st.rerun()
         st.divider()
@@ -462,6 +464,7 @@ def main():
             with st.form(f"edit_app_form_{app_to_edit_id}"):
                 st.write(f"**Editing: {app_details['name']}**")
                 edit_name = st.text_input("Application Name", value=app_details['name'])
+                edit_service_owner = st.text_input("Service Owner/Lead", value=app_details.get('service_owner') or '')
                 
                 default_unit_idx = list(it_unit_options_all.keys()).index(app_details['it_unit_id']) if app_details.get('it_unit_id') in it_unit_options_all else 0
                 edit_it_unit_id = st.selectbox("Managing IT Unit", options=it_unit_options_all.keys(), format_func=it_unit_options_all.get, index=default_unit_idx)
@@ -485,7 +488,7 @@ def main():
 
                 del_col, save_col = st.columns([1, 6])
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
-                    update_application(app_to_edit_id, edit_it_unit_id, edit_vendor_id, edit_name, edit_type_id, edit_category_id, edit_annual_cost, str(edit_renewal), edit_integrations, edit_other_units, edit_similar_apps)
+                    update_application(app_to_edit_id, edit_it_unit_id, edit_vendor_id, edit_name, edit_type_id, edit_category_id, edit_annual_cost, str(edit_renewal), edit_integrations, edit_other_units, edit_similar_apps, edit_service_owner)
                     st.success("Application updated.")
                     st.rerun()
                 if del_col.form_submit_button("DELETE"):
