@@ -789,6 +789,15 @@ def main():
             ]
 
         st.dataframe(filtered_log_df, width='stretch')
+        
+        csv_audit = convert_df_to_csv(filtered_log_df)
+        st.download_button(
+            label="Download log as CSV",
+            data=csv_audit,
+            file_name='audit_log_export.csv',
+            mime='text/csv',
+        )
+
 
 if __name__ == '__main__':
     main()
