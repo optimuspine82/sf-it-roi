@@ -15,7 +15,8 @@ TAB_INSTRUCTIONS = {
     "Applications": "Track all software applications, whether they are developed internally or purchased from an external vendor. Link each application to the IT Unit that manages it.",
     "IT Services": "Manage all internal services provided by your IT Units, such as the Help Desk or Classroom Support. You can track budget, FTEs, and service level details.",
     "Dashboard": "Get a high-level visual overview of your portfolio. This dashboard highlights total costs, shows spending by vendor, and application distribution by IT Unit.",
-    "Settings": "Configure the dropdown options used throughout the application. Add or remove Vendors, Application Types, Categories, etc., to customize the forms to your needs."
+    "Settings": "Configure the dropdown options used throughout the application. Add or remove Vendors, Application Types, Categories, etc., to customize the forms to your needs.",
+    "Audit Log": "View a complete history of all changes made within the application. You can filter the log by user, item type, or date range to track activity."
 }
 
 def check_authentication():
@@ -119,6 +120,19 @@ def init_db():
             if col not in it_services_columns:
                 cur.execute(f"ALTER TABLE it_services ADD COLUMN {col} {col_type}")
 
+        # --- Audit Log Table ---
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                user_email TEXT NOT NULL,
+                action TEXT NOT NULL,
+                item_type TEXT NOT NULL,
+                item_name TEXT NOT NULL,
+                details TEXT
+            )
+        ''')
+
         con.commit()
     except sqlite3.Error as e:
         st.error(f"Database error during initialization: {e}")
@@ -133,6 +147,18 @@ def get_connection():
     """Returns a database connection."""
     return sqlite3.connect(DB_FILE)
 
+def log_change(user_email, action, item_type, item_name, details=""):
+    """Logs an action to the audit_log table."""
+    with get_connection() as con:
+        cur = con.cursor()
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute(
+            """INSERT INTO audit_log (timestamp, user_email, action, item_type, item_name, details)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (timestamp, user_email, action, item_type, item_name, details)
+        )
+        con.commit()
+
 # IT Unit Functions
 def get_it_units():
     with get_connection() as con:
@@ -146,7 +172,7 @@ def get_it_unit_details(unit_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_it_unit(name, contact_person="", contact_email="", total_fte=0, budget_amount=0.0, notes=""):
+def add_it_unit(user_email, name, contact_person="", contact_email="", total_fte=0, budget_amount=0.0, notes=""):
     """Adds a new IT Unit if the name doesn't exist, returns the unit's ID."""
     with get_connection() as con:
         cur = con.cursor()
@@ -161,10 +187,11 @@ def add_it_unit(name, contact_person="", contact_email="", total_fte=0, budget_a
             VALUES (?, ?, ?, ?, ?, ?)
         """, (name, contact_person, contact_email, total_fte, budget_amount, notes))
         con.commit()
+        log_change(user_email, "CREATE", "IT Unit", name)
         st.success(f"Added new IT Unit: {name}")
         return cur.lastrowid
 
-def update_it_unit_details(unit_id, name, contact_person, contact_email, total_fte, budget_amount, notes):
+def update_it_unit_details(user_email, unit_id, name, contact_person, contact_email, total_fte, budget_amount, notes):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("""
@@ -173,15 +200,16 @@ def update_it_unit_details(unit_id, name, contact_person, contact_email, total_f
             WHERE id = ?
         """, (name, contact_person, contact_email, total_fte, budget_amount, notes, unit_id))
         con.commit()
+        log_change(user_email, "UPDATE", "IT Unit", name)
 
-def delete_it_unit(unit_id):
+def delete_it_unit(user_email, unit_id, unit_name):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("DELETE FROM it_units WHERE id = ?", (unit_id,))
-        # Also update related items to remove the link
         cur.execute("UPDATE applications SET it_unit_id = NULL WHERE it_unit_id = ?", (unit_id,))
         cur.execute("UPDATE it_services SET it_unit_id = NULL WHERE it_unit_id = ?", (unit_id,))
         con.commit()
+        log_change(user_email, "DELETE", "IT Unit", unit_name)
 
 
 # Lookup CRUD Functions (Vendors, Types, etc.)
@@ -189,17 +217,19 @@ def get_lookup_data(table_name):
     with get_connection() as con:
         return pd.read_sql_query(f"SELECT * FROM {table_name} ORDER BY name", con)
 
-def add_lookup_item(table_name, name):
+def add_lookup_item(user_email, table_name, name):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute(f"INSERT INTO {table_name} (name) VALUES (?)", (name,))
         con.commit()
+        log_change(user_email, "CREATE", f"Lookup: {table_name}", name)
 
-def delete_lookup_item(table_name, item_id):
+def delete_lookup_item(user_email, table_name, item_id, item_name):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute(f"DELETE FROM {table_name} WHERE id = ?", (item_id,))
         con.commit()
+        log_change(user_email, "DELETE", f"Lookup: {table_name}", item_name)
 
 # Application Functions
 def get_applications():
@@ -225,7 +255,7 @@ def get_application_details(app_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_application(it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, service_owner):
+def add_application(user_email, it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, service_owner):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute(
@@ -234,8 +264,9 @@ def add_application(it_unit_id, vendor_id, name, service_type_id, category_id, a
             (it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, service_owner)
         )
         con.commit()
+        log_change(user_email, "CREATE", "Application", name)
 
-def update_application(app_id, it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, service_owner):
+def update_application(user_email, app_id, it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, service_owner):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute(
@@ -244,12 +275,14 @@ def update_application(app_id, it_unit_id, vendor_id, name, service_type_id, cat
             (it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, service_owner, app_id)
         )
         con.commit()
+        log_change(user_email, "UPDATE", "Application", name)
 
-def delete_application(app_id):
+def delete_application(user_email, app_id, app_name):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("DELETE FROM applications WHERE id = ?", (app_id,))
         con.commit()
+        log_change(user_email, "DELETE", "Application", app_name)
         
 # IT Service Functions
 def get_it_services():
@@ -275,7 +308,7 @@ def get_it_service_details(service_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_it_service(name, desc, it_unit_id, fte, deps, owner, status, sla_id, method_id, budget):
+def add_it_service(user_email, name, desc, it_unit_id, fte, deps, owner, status, sla_id, method_id, budget):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("""
@@ -283,8 +316,9 @@ def add_it_service(name, desc, it_unit_id, fte, deps, owner, status, sla_id, met
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (name, desc, it_unit_id, fte, deps, owner, status, sla_id, method_id, budget))
         con.commit()
+        log_change(user_email, "CREATE", "IT Service", name)
 
-def update_it_service(service_id, name, desc, it_unit_id, fte, deps, owner, status, sla_id, method_id, budget):
+def update_it_service(user_email, service_id, name, desc, it_unit_id, fte, deps, owner, status, sla_id, method_id, budget):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("""
@@ -293,12 +327,19 @@ def update_it_service(service_id, name, desc, it_unit_id, fte, deps, owner, stat
             WHERE id = ?
         """, (name, desc, it_unit_id, fte, deps, owner, status, sla_id, method_id, budget, service_id))
         con.commit()
+        log_change(user_email, "UPDATE", "IT Service", name)
 
-def delete_it_service(service_id):
+def delete_it_service(user_email, service_id, service_name):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("DELETE FROM it_services WHERE id = ?", (service_id,))
         con.commit()
+        log_change(user_email, "DELETE", "IT Service", service_name)
+
+# Audit Log Functions
+def get_audit_log():
+    with get_connection() as con:
+        return pd.read_sql_query("SELECT timestamp, user_email, action, item_type, item_name FROM audit_log ORDER BY timestamp DESC", con)
 
 # --- STREAMLIT UI ---
 
@@ -307,13 +348,13 @@ def convert_df_to_csv(df):
     """Helper function to convert a DataFrame to a CSV string."""
     return df.to_csv(index=False).encode('utf-8')
 
-def render_lookup_manager(title, singular_name, table_name):
+def render_lookup_manager(user_email, title, singular_name, table_name):
     st.write(f"#### {title}")
     with st.form(f"add_{table_name}_form", clear_on_submit=True):
         new_name = st.text_input(f"New {singular_name} Name")
         if st.form_submit_button(f"Add {singular_name}"):
             if new_name:
-                add_lookup_item(table_name, new_name)
+                add_lookup_item(user_email, table_name, new_name)
                 st.rerun()
     
     items = get_lookup_data(table_name)
@@ -332,7 +373,9 @@ def main():
 
     init_db()
     
-    st.sidebar.success(f"Logged in as {st.session_state['user_email']}")
+    user_email = st.session_state.get('user_email', 'unknown')
+    
+    st.sidebar.success(f"Logged in as {user_email}")
     if st.sidebar.button("Logout"):
         st.session_state['authenticated'] = False
         st.session_state.pop('user_email', None)
@@ -341,8 +384,8 @@ def main():
     st.title("Service Portfolio Manager")
     st.write("Track IT Units, applications, and internal IT services to identify overlaps and cost-saving opportunities.")
 
-    tab_names = ["IT Units", "Applications", "IT Services", "Dashboard", "Settings"]
-    unit_tab, app_tab, service_tab, dashboard_tab, settings_tab = st.tabs(tab_names)
+    tab_names = ["IT Units", "Applications", "IT Services", "Dashboard", "Settings", "Audit Log"]
+    unit_tab, app_tab, service_tab, dashboard_tab, settings_tab, audit_tab = st.tabs(tab_names)
 
     it_units_df_all = get_it_units()
     it_unit_options_all = dict(zip(it_units_df_all['id'], it_units_df_all['name']))
@@ -360,7 +403,7 @@ def main():
                 budget_amount = st.number_input("Annual Budget ($)", min_value=0.0, format="%.2f")
                 notes = st.text_area("Notes", height=150)
                 if st.form_submit_button("Add IT Unit") and name:
-                    add_it_unit(name, contact_person, contact_email, total_fte, budget_amount, notes)
+                    add_it_unit(user_email, name, contact_person, contact_email, total_fte, budget_amount, notes)
                     st.rerun()
         
         st.divider()
@@ -376,21 +419,20 @@ def main():
         unit_to_edit_id = st.selectbox("Select an IT Unit", options=[None] + list(unit_options.keys()), format_func=lambda x: "---" if x is None else unit_options.get(x))
 
         if unit_to_edit_id:
+            unit_details = get_it_unit_details(unit_to_edit_id)
             if 'confirming_delete_unit' in st.session_state and st.session_state.confirming_delete_unit == unit_to_edit_id:
-                unit_name = it_unit_options_all.get(unit_to_edit_id, "this item")
-                st.warning(f"**Are you sure you want to delete '{unit_name}'?** This removes its association from any items.")
+                st.warning(f"**Are you sure you want to delete '{unit_details['name']}'?** This removes its association from any items.")
                 c1, c2 = st.columns(2)
                 if c1.button("Yes, delete it", key="confirm_del_unit"):
-                    delete_it_unit(unit_to_edit_id)
+                    delete_it_unit(user_email, unit_to_edit_id, unit_details['name'])
                     st.session_state.pop('confirming_delete_unit', None)
-                    st.success(f"Deleted IT Unit: {unit_name}")
+                    st.success(f"Deleted IT Unit: {unit_details['name']}")
                     st.rerun()
                 if c2.button("Cancel", key="cancel_del_unit"):
                     st.session_state.pop('confirming_delete_unit', None)
                     st.rerun()
 
             with st.form("edit_unit_form"):
-                unit_details = get_it_unit_details(unit_to_edit_id)
                 st.write(f"**Editing: {unit_details['name']}**")
                 name = st.text_input("IT Unit Name", value=unit_details['name'])
                 contact_person = st.text_input("Contact Person", value=unit_details.get('contact_person') or '')
@@ -401,7 +443,7 @@ def main():
                 
                 del_col, save_col = st.columns([1, 6])
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
-                    update_it_unit_details(unit_to_edit_id, name, contact_person, contact_email, total_fte, budget_amount, notes)
+                    update_it_unit_details(user_email, unit_to_edit_id, name, contact_person, contact_email, total_fte, budget_amount, notes)
                     st.success(f"Updated details for {name}")
                     st.rerun()
                 if del_col.form_submit_button("DELETE"):
@@ -442,7 +484,7 @@ def main():
                     similar_apps = st.text_area("Similar Applications (if any)")
                     
                     if st.form_submit_button("Save Application") and app_name:
-                        add_application(it_unit_id, vendor_id, app_name, service_type_id, category_id, annual_cost, str(renewal_date), integrations, other_units, similar_apps, service_owner)
+                        add_application(user_email, it_unit_id, vendor_id, app_name, service_type_id, category_id, annual_cost, str(renewal_date), integrations, other_units, similar_apps, service_owner)
                         st.success(f"Added application: {app_name}")
                         st.rerun()
         st.divider()
@@ -471,21 +513,20 @@ def main():
         app_to_edit_id = st.selectbox("Select an application", options=[None] + list(app_options_all.keys()), format_func=lambda x: "---" if x is None else app_options_all.get(x))
 
         if app_to_edit_id:
+            app_details = get_application_details(app_to_edit_id)
             if 'confirming_delete_app' in st.session_state and st.session_state.confirming_delete_app == app_to_edit_id:
-                app_name = app_options_all.get(app_to_edit_id, "this item")
-                st.warning(f"**Are you sure you want to delete the application '{app_name}'?**")
+                st.warning(f"**Are you sure you want to delete the application '{app_details['name']}'?**")
                 c1, c2 = st.columns(2)
                 if c1.button("Yes, delete it", key="confirm_del_app"):
-                    delete_application(app_to_edit_id)
+                    delete_application(user_email, app_to_edit_id, app_details['name'])
                     st.session_state.pop('confirming_delete_app', None)
-                    st.success(f"Deleted application: {app_name}")
+                    st.success(f"Deleted application: {app_details['name']}")
                     st.rerun()
                 if c2.button("Cancel", key="cancel_del_app"):
                     st.session_state.pop('confirming_delete_app', None)
                     st.rerun()
             
             with st.form(f"edit_app_form_{app_to_edit_id}"):
-                app_details = get_application_details(app_to_edit_id)
                 st.write(f"**Editing: {app_details['name']}**")
                 edit_name = st.text_input("Application Name", value=app_details['name'])
                 edit_service_owner = st.text_input("Service Owner/Lead", value=app_details.get('service_owner') or '')
@@ -512,7 +553,7 @@ def main():
 
                 del_col, save_col = st.columns([1, 6])
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
-                    update_application(app_to_edit_id, edit_it_unit_id, edit_vendor_id, edit_name, edit_type_id, edit_category_id, edit_annual_cost, str(edit_renewal), edit_integrations, edit_other_units, edit_similar_apps, edit_service_owner)
+                    update_application(user_email, app_to_edit_id, edit_it_unit_id, edit_vendor_id, edit_name, edit_type_id, edit_category_id, edit_annual_cost, str(edit_renewal), edit_integrations, edit_other_units, edit_similar_apps, edit_service_owner)
                     st.success("Application updated.")
                     st.rerun()
                 if del_col.form_submit_button("DELETE"):
@@ -542,7 +583,7 @@ def main():
                 dependencies = st.text_area("Dependencies (e.g., other apps, services)")
                 
                 if st.form_submit_button("Add Service") and it_service_name:
-                    add_it_service(it_service_name, it_service_desc, it_unit_id, fte_count, dependencies, service_owner, status, sla_id, method_id, budget_allocation)
+                    add_it_service(user_email, it_service_name, it_service_desc, it_unit_id, fte_count, dependencies, service_owner, status, sla_id, method_id, budget_allocation)
                     st.success(f"Added service: {it_service_name}")
                     st.rerun()
         
@@ -571,21 +612,20 @@ def main():
         it_service_to_edit_id = st.selectbox("Select a service", options=[None] + list(it_service_options_all.keys()), format_func=lambda x: "---" if x is None else it_service_options_all.get(x))
 
         if it_service_to_edit_id:
+            it_service_details = get_it_service_details(it_service_to_edit_id)
             if 'confirming_delete_service' in st.session_state and st.session_state.confirming_delete_service == it_service_to_edit_id:
-                service_name = it_service_options_all.get(it_service_to_edit_id, "this item")
-                st.warning(f"**Are you sure you want to delete the IT Service '{service_name}'?**")
+                st.warning(f"**Are you sure you want to delete the IT Service '{it_service_details['name']}'?**")
                 c1, c2 = st.columns(2)
                 if c1.button("Yes, delete it", key="confirm_del_service"):
-                    delete_it_service(it_service_to_edit_id)
+                    delete_it_service(user_email, it_service_to_edit_id, it_service_details['name'])
                     st.session_state.pop('confirming_delete_service', None)
-                    st.success(f"Deleted IT Service: {service_name}")
+                    st.success(f"Deleted IT Service: {it_service_details['name']}")
                     st.rerun()
                 if c2.button("Cancel", key="cancel_del_service"):
                     st.session_state.pop('confirming_delete_service', None)
                     st.rerun()
 
             with st.form(f"edit_it_service_{it_service_to_edit_id}"):
-                it_service_details = get_it_service_details(it_service_to_edit_id)
                 st.write(f"**Editing: {it_service_details['name']}**")
                 edit_it_name = st.text_input("Service Name", value=it_service_details['name'])
                 
@@ -614,7 +654,7 @@ def main():
 
                 del_col, save_col = st.columns([1, 6])
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
-                    update_it_service(it_service_to_edit_id, edit_it_name, edit_it_desc, edit_it_unit_id, edit_fte_count, edit_dependencies, edit_service_owner, edit_status, edit_sla_id, edit_method_id, edit_budget)
+                    update_it_service(user_email, it_service_to_edit_id, edit_it_name, edit_it_desc, edit_it_unit_id, edit_fte_count, edit_dependencies, edit_service_owner, edit_status, edit_sla_id, edit_method_id, edit_budget)
                     st.success(f"Updated {edit_it_name}")
                     st.rerun()
                 if del_col.form_submit_button("DELETE"):
@@ -693,7 +733,7 @@ def main():
             st.warning(f"**Are you sure you want to delete the lookup item '{item['name']}'?**")
             c1, c2 = st.columns(2)
             if c1.button("Yes, delete it", key="confirm_del_lookup"):
-                delete_lookup_item(item['table'], item['id'])
+                delete_lookup_item(user_email, item['table'], item['id'], item['name'])
                 st.session_state.pop('confirming_delete_lookup', None)
                 st.success(f"Deleted item: {item['name']}")
                 st.rerun()
@@ -703,19 +743,52 @@ def main():
         
         ven_col, type_col = st.columns(2)
         with ven_col:
-            render_lookup_manager("Vendors", "Vendor", "vendors")
+            render_lookup_manager(user_email, "Vendors", "Vendor", "vendors")
         with type_col:
-            render_lookup_manager("Application Types", "Application Type", "service_types")
+            render_lookup_manager(user_email, "Application Types", "Application Type", "service_types")
 
         st.divider()
 
         cat_col, sla_col, method_col = st.columns(3)
         with cat_col:
-            render_lookup_manager("Categories", "Category", "categories")
+            render_lookup_manager(user_email, "Categories", "Category", "categories")
         with sla_col:
-            render_lookup_manager("SLA Levels", "SLA Level", "sla_levels")
+            render_lookup_manager(user_email, "SLA Levels", "SLA Level", "sla_levels")
         with method_col:
-            render_lookup_manager("Service Methods", "Service Method", "service_methods")
+            render_lookup_manager(user_email, "Service Methods", "Service Method", "service_methods")
+
+    with audit_tab:
+        st.header("Audit Log")
+        st.info(TAB_INSTRUCTIONS["Audit Log"])
+
+        audit_df = get_audit_log()
+        
+        st.subheader("Filter Audit Log")
+        log_f1, log_f2, log_f3 = st.columns(3)
+
+        # Ensure timestamp is datetime for filtering
+        audit_df['timestamp'] = pd.to_datetime(audit_df['timestamp'])
+
+        filter_user = log_f1.multiselect("Filter by User", options=audit_df['user_email'].unique())
+        filter_item_type = log_f2.multiselect("Filter by Item Type", options=audit_df['item_type'].unique())
+        
+        today = datetime.date.today()
+        filter_date = log_f3.date_input("Filter by Date Range", value=(today - datetime.timedelta(days=7), today))
+
+        filtered_log_df = audit_df.copy()
+        if filter_user:
+            filtered_log_df = filtered_log_df[filtered_log_df['user_email'].isin(filter_user)]
+        if filter_item_type:
+            filtered_log_df = filtered_log_df[filtered_log_df['item_type'].isin(filter_item_type)]
+        if len(filter_date) == 2:
+            start_date = pd.to_datetime(filter_date[0]).date()
+            end_date = pd.to_datetime(filter_date[1]).date()
+            filtered_log_df = filtered_log_df[
+                (filtered_log_df['timestamp'].dt.date >= start_date) & 
+                (filtered_log_df['timestamp'].dt.date <= end_date)
+            ]
+
+        st.dataframe(filtered_log_df, width='stretch')
 
 if __name__ == '__main__':
     main()
