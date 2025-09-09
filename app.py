@@ -321,7 +321,7 @@ def render_lookup_manager(title, singular_name, table_name):
         l_col, r_col = st.columns([4, 1])
         l_col.write(row['name'])
         if r_col.button("🗑️", key=f"del_{table_name}_{row['id']}"):
-            delete_lookup_item(table_name, row['id'])
+            st.session_state.confirming_delete_lookup = {'table': table_name, 'id': row['id'], 'name': row['name']}
             st.rerun()
 
 def main():
@@ -376,8 +376,21 @@ def main():
         unit_to_edit_id = st.selectbox("Select an IT Unit", options=[None] + list(unit_options.keys()), format_func=lambda x: "---" if x is None else unit_options.get(x))
 
         if unit_to_edit_id:
-            unit_details = get_it_unit_details(unit_to_edit_id)
+            if 'confirming_delete_unit' in st.session_state and st.session_state.confirming_delete_unit == unit_to_edit_id:
+                unit_name = it_unit_options_all.get(unit_to_edit_id, "this item")
+                st.warning(f"**Are you sure you want to delete '{unit_name}'?** This removes its association from any items.")
+                c1, c2 = st.columns(2)
+                if c1.button("Yes, delete it", key="confirm_del_unit"):
+                    delete_it_unit(unit_to_edit_id)
+                    st.session_state.pop('confirming_delete_unit', None)
+                    st.success(f"Deleted IT Unit: {unit_name}")
+                    st.rerun()
+                if c2.button("Cancel", key="cancel_del_unit"):
+                    st.session_state.pop('confirming_delete_unit', None)
+                    st.rerun()
+
             with st.form("edit_unit_form"):
+                unit_details = get_it_unit_details(unit_to_edit_id)
                 st.write(f"**Editing: {unit_details['name']}**")
                 name = st.text_input("IT Unit Name", value=unit_details['name'])
                 contact_person = st.text_input("Contact Person", value=unit_details.get('contact_person') or '')
@@ -392,13 +405,11 @@ def main():
                     st.success(f"Updated details for {name}")
                     st.rerun()
                 if del_col.form_submit_button("DELETE"):
-                    delete_it_unit(unit_to_edit_id)
-                    st.warning(f"Deleted IT Unit: {unit_details['name']}")
+                    st.session_state.confirming_delete_unit = unit_to_edit_id
                     st.rerun()
 
         st.subheader("All IT Units")
         st.dataframe(filtered_units_df, width='stretch')
-        
         csv_units = convert_df_to_csv(filtered_units_df)
         st.download_button(label="Download data as CSV", data=csv_units, file_name='it_units_export.csv', mime='text/csv')
 
@@ -460,8 +471,21 @@ def main():
         app_to_edit_id = st.selectbox("Select an application", options=[None] + list(app_options_all.keys()), format_func=lambda x: "---" if x is None else app_options_all.get(x))
 
         if app_to_edit_id:
-            app_details = get_application_details(app_to_edit_id)
+            if 'confirming_delete_app' in st.session_state and st.session_state.confirming_delete_app == app_to_edit_id:
+                app_name = app_options_all.get(app_to_edit_id, "this item")
+                st.warning(f"**Are you sure you want to delete the application '{app_name}'?**")
+                c1, c2 = st.columns(2)
+                if c1.button("Yes, delete it", key="confirm_del_app"):
+                    delete_application(app_to_edit_id)
+                    st.session_state.pop('confirming_delete_app', None)
+                    st.success(f"Deleted application: {app_name}")
+                    st.rerun()
+                if c2.button("Cancel", key="cancel_del_app"):
+                    st.session_state.pop('confirming_delete_app', None)
+                    st.rerun()
+            
             with st.form(f"edit_app_form_{app_to_edit_id}"):
+                app_details = get_application_details(app_to_edit_id)
                 st.write(f"**Editing: {app_details['name']}**")
                 edit_name = st.text_input("Application Name", value=app_details['name'])
                 edit_service_owner = st.text_input("Service Owner/Lead", value=app_details.get('service_owner') or '')
@@ -492,8 +516,7 @@ def main():
                     st.success("Application updated.")
                     st.rerun()
                 if del_col.form_submit_button("DELETE"):
-                    delete_application(app_to_edit_id)
-                    st.warning(f"Deleted application: {app_details['name']}")
+                    st.session_state.confirming_delete_app = app_to_edit_id
                     st.rerun()
 
     with service_tab:
@@ -548,8 +571,21 @@ def main():
         it_service_to_edit_id = st.selectbox("Select a service", options=[None] + list(it_service_options_all.keys()), format_func=lambda x: "---" if x is None else it_service_options_all.get(x))
 
         if it_service_to_edit_id:
-            it_service_details = get_it_service_details(it_service_to_edit_id)
+            if 'confirming_delete_service' in st.session_state and st.session_state.confirming_delete_service == it_service_to_edit_id:
+                service_name = it_service_options_all.get(it_service_to_edit_id, "this item")
+                st.warning(f"**Are you sure you want to delete the IT Service '{service_name}'?**")
+                c1, c2 = st.columns(2)
+                if c1.button("Yes, delete it", key="confirm_del_service"):
+                    delete_it_service(it_service_to_edit_id)
+                    st.session_state.pop('confirming_delete_service', None)
+                    st.success(f"Deleted IT Service: {service_name}")
+                    st.rerun()
+                if c2.button("Cancel", key="cancel_del_service"):
+                    st.session_state.pop('confirming_delete_service', None)
+                    st.rerun()
+
             with st.form(f"edit_it_service_{it_service_to_edit_id}"):
+                it_service_details = get_it_service_details(it_service_to_edit_id)
                 st.write(f"**Editing: {it_service_details['name']}**")
                 edit_it_name = st.text_input("Service Name", value=it_service_details['name'])
                 
@@ -582,8 +618,7 @@ def main():
                     st.success(f"Updated {edit_it_name}")
                     st.rerun()
                 if del_col.form_submit_button("DELETE"):
-                    delete_it_service(it_service_to_edit_id)
-                    st.warning(f"Deleted service: {it_service_details['name']}")
+                    st.session_state.confirming_delete_service = it_service_to_edit_id
                     st.rerun()
 
     with dashboard_tab:
@@ -652,6 +687,19 @@ def main():
     with settings_tab:
         st.header("Manage Lookups")
         st.info(TAB_INSTRUCTIONS["Settings"])
+
+        if 'confirming_delete_lookup' in st.session_state and st.session_state.confirming_delete_lookup:
+            item = st.session_state.confirming_delete_lookup
+            st.warning(f"**Are you sure you want to delete the lookup item '{item['name']}'?**")
+            c1, c2 = st.columns(2)
+            if c1.button("Yes, delete it", key="confirm_del_lookup"):
+                delete_lookup_item(item['table'], item['id'])
+                st.session_state.pop('confirming_delete_lookup', None)
+                st.success(f"Deleted item: {item['name']}")
+                st.rerun()
+            if c2.button("Cancel", key="cancel_del_lookup"):
+                st.session_state.pop('confirming_delete_lookup', None)
+                st.rerun()
         
         ven_col, type_col = st.columns(2)
         with ven_col:
