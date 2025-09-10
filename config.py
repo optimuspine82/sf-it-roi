@@ -11,4 +11,6 @@ ALLOWED_EMAILS = {
     "edmunds@unc.edu",
     "philk@unc.edu",
     "brian.cass@unc.edu",
+    "cstory@email.unc.edu",
+    "brian_nussbaum@unc.edu",
 }
