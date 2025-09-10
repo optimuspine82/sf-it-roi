@@ -98,9 +98,20 @@ def init_db():
         for col, col_type in required_app_columns.items():
             if col not in app_columns:
                 cur.execute(f"ALTER TABLE applications ADD COLUMN {col} {col_type}")
+        
+        # --- IT Services Table Setup & Migration (including removing UNIQUE constraint on name) ---
+        cur.execute("PRAGMA index_list('it_services')")
+        indexes = [row[1] for row in cur.fetchall()]
+        has_unique_name_constraint = any('it_services_name' in idx for idx in indexes)
 
-        # --- IT Services Table Setup & Migration ---
-        cur.execute("CREATE TABLE IF NOT EXISTS it_services (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT)")
+        if has_unique_name_constraint:
+            st.warning("Migrating IT Services table to remove unique name constraint.")
+            cur.execute("ALTER TABLE it_services RENAME TO it_services_old")
+            cur.execute("CREATE TABLE it_services (id INTEGER PRIMARY KEY, name TEXT NOT NULL, description TEXT)")
+            cur.execute("INSERT INTO it_services (id, name, description) SELECT id, name, description FROM it_services_old")
+            cur.execute("DROP TABLE it_services_old")
+
+        cur.execute("CREATE TABLE IF NOT EXISTS it_services (id INTEGER PRIMARY KEY, name TEXT NOT NULL, description TEXT)")
         cur.execute("PRAGMA table_info(it_services)")
         it_services_columns = [info[1] for info in cur.fetchall()]
         
@@ -680,9 +691,36 @@ def main():
         metric_col3.metric("Total IT Services", len(all_it_services_df))
         metric_col4.metric("Total Annual Spend/Budget", f"${(total_annual_cost + total_it_budget):,.2f}")
 
+        st.divider()
+        st.subheader("Consolidation Opportunities")
+
+        if not all_apps_df.empty:
+            app_duplicates = all_apps_df[all_apps_df.duplicated(subset=['name'], keep=False)].sort_values(by='name')
+            if not app_duplicates.empty:
+                st.warning("Duplicate Applications Found Across IT Units")
+                st.dataframe(app_duplicates[['name', 'managing_it_unit', 'vendor', 'annual_cost']], width='stretch')
+            else:
+                st.success("No duplicate application names found.")
+        
+        if not all_it_services_df.empty:
+            service_duplicates = all_it_services_df[all_it_services_df.duplicated(subset=['name'], keep=False)].sort_values(by='name')
+            if not service_duplicates.empty:
+                st.warning("Duplicate IT Services Found Across IT Units")
+                st.dataframe(service_duplicates[['name', 'providing_it_unit', 'budget_allocation', 'fte_count']], width='stretch')
+            else:
+                st.success("No duplicate IT service names found.")
+        
+        if not all_apps_df.empty:
+            category_duplicates = all_apps_df.dropna(subset=['category'])[all_apps_df.dropna(subset=['category']).duplicated(subset=['category'], keep=False)].sort_values(by='category')
+            if not category_duplicates.empty:
+                st.warning("Overlapping Application Categories Found")
+                st.dataframe(category_duplicates[['category', 'name', 'managing_it_unit', 'vendor']], width='stretch')
+            else:
+                st.success("No overlapping application categories found.")
+
         if not all_apps_df.empty:
             st.divider()
-            st.subheader("Application Insights")
+            st.subheader("Application Visual Insights")
             chart_col1, chart_col2 = st.columns(2)
             with chart_col1:
                 cost_by_vendor = all_apps_df.groupby('vendor')['annual_cost'].sum().reset_index()
@@ -697,21 +735,12 @@ def main():
                 apps_by_category = all_apps_df['category'].value_counts().reset_index()
                 fig_app_category = px.bar(apps_by_category, x='category', y='count', title='Application Count by Category')
                 st.plotly_chart(fig_app_category, use_container_width=True)
-            
-            st.divider()
-            st.subheader("Potential Overlaps by Category")
-            duplicates = all_apps_df.dropna(subset=['category'])[all_apps_df.dropna(subset=['category']).duplicated(subset=['category'], keep=False)].sort_values(by='category')
-            if not duplicates.empty:
-                st.warning("Found applications in the same category. Review for potential consolidation.")
-                st.dataframe(duplicates[['managing_it_unit', 'vendor', 'name', 'category', 'annual_cost']], width='stretch')
-            else:
-                st.success("No overlapping application categories found.")
         else:
             st.info("Add applications to see application-specific insights.")
         
         if not all_it_services_df.empty:
             st.divider()
-            st.subheader("IT Service Insights")
+            st.subheader("IT Service Visual Insights")
             it_chart_col1, it_chart_col2 = st.columns(2)
             with it_chart_col1:
                 budget_by_service = all_it_services_df.groupby('name')['budget_allocation'].sum().reset_index()
