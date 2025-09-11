@@ -1,3 +1,3 @@
-- [ ] Add ability to edit settings
+- [x] Add ability to edit settings
 - [ ] Can IT Units quick add items from another unit?
 - [ ] Create README file
