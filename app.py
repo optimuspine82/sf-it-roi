@@ -13,6 +13,7 @@ DB_FILE = "portfolio.db"
 TAB_INSTRUCTIONS = {
     "IT Units": "Manage the internal IT teams or departments responsible for applications and services. You can add new units, edit their contact and budget information, or delete them here.",
     "Applications": "Track all software applications, whether they are developed internally or purchased from an external vendor. Link each application to the IT Unit that manages it.",
+    "Infrastructure": "Track physical or cloud infrastructure components like servers, networks, or storage systems. Assign them to an IT Unit and track costs and lifecycle dates.",
     "IT Services": "Manage all internal services provided by your IT Units, such as the Help Desk or Classroom Support. You can track budget, FTEs, and service level details.",
     "Dashboard": "Get a high-level visual overview of your portfolio. This dashboard highlights total costs, shows spending by vendor, and application distribution by IT Unit.",
     "Settings": "Configure the dropdown options used throughout the application. Add or remove Vendors, Application Types, Categories, etc., to customize the forms to your needs.",
@@ -131,6 +132,19 @@ def init_db():
             if col not in it_services_columns:
                 cur.execute(f"ALTER TABLE it_services ADD COLUMN {col} {col_type}")
 
+        # --- Infrastructure Table Setup ---
+        cur.execute("CREATE TABLE IF NOT EXISTS infrastructure (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+        cur.execute("PRAGMA table_info(infrastructure)")
+        infra_columns = [info[1] for info in cur.fetchall()]
+        required_infra_columns = {
+            "it_unit_id": "INTEGER REFERENCES it_units(id)", "vendor_id": "INTEGER REFERENCES vendors(id)",
+            "location": "TEXT", "status": "TEXT", "purchase_date": "TEXT",
+            "warranty_expiry": "TEXT", "annual_maintenance_cost": "REAL", "notes": "TEXT"
+        }
+        for col, col_type in required_infra_columns.items():
+            if col not in infra_columns:
+                cur.execute(f"ALTER TABLE infrastructure ADD COLUMN {col} {col_type}")
+
         # --- Audit Log Table ---
         cur.execute('''
             CREATE TABLE IF NOT EXISTS audit_log (
@@ -219,6 +233,7 @@ def delete_it_unit(user_email, unit_id, unit_name):
         cur.execute("DELETE FROM it_units WHERE id = ?", (unit_id,))
         cur.execute("UPDATE applications SET it_unit_id = NULL WHERE it_unit_id = ?", (unit_id,))
         cur.execute("UPDATE it_services SET it_unit_id = NULL WHERE it_unit_id = ?", (unit_id,))
+        cur.execute("UPDATE infrastructure SET it_unit_id = NULL WHERE it_unit_id = ?", (unit_id,))
         con.commit()
         log_change(user_email, "DELETE", "IT Unit", unit_name)
 
@@ -355,6 +370,55 @@ def delete_it_service(user_email, service_id, service_name):
         con.commit()
         log_change(user_email, "DELETE", "IT Service", service_name)
 
+# Infrastructure Functions
+def get_infrastructure():
+    with get_connection() as con:
+        query = """
+            SELECT
+                i.id, i.name, iu.name as managing_it_unit, v.name as vendor,
+                i.location, i.status, i.purchase_date, i.warranty_expiry, i.annual_maintenance_cost
+            FROM infrastructure i
+            LEFT JOIN it_units iu ON i.it_unit_id = iu.id
+            LEFT JOIN vendors v ON i.vendor_id = v.id
+            ORDER BY i.name
+        """
+        return pd.read_sql_query(query, con)
+
+def get_infrastructure_details(infra_id):
+    with get_connection() as con:
+        con.row_factory = sqlite3.Row
+        cur = con.cursor()
+        cur.execute("SELECT * FROM infrastructure WHERE id = ?", (infra_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+def add_infrastructure(user_email, name, it_unit_id, vendor_id, location, status, purchase_date, warranty_expiry, cost, notes):
+    with get_connection() as con:
+        cur = con.cursor()
+        cur.execute("""
+            INSERT INTO infrastructure (name, it_unit_id, vendor_id, location, status, purchase_date, warranty_expiry, annual_maintenance_cost, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (name, it_unit_id, vendor_id, location, status, purchase_date, warranty_expiry, cost, notes))
+        con.commit()
+        log_change(user_email, "CREATE", "Infrastructure", name)
+
+def update_infrastructure(user_email, infra_id, name, it_unit_id, vendor_id, location, status, purchase_date, warranty_expiry, cost, notes):
+    with get_connection() as con:
+        cur = con.cursor()
+        cur.execute("""
+            UPDATE infrastructure SET name=?, it_unit_id=?, vendor_id=?, location=?, status=?, purchase_date=?, warranty_expiry=?, annual_maintenance_cost=?, notes=?
+            WHERE id = ?
+        """, (name, it_unit_id, vendor_id, location, status, purchase_date, warranty_expiry, cost, notes, infra_id))
+        con.commit()
+        log_change(user_email, "UPDATE", "Infrastructure", name)
+
+def delete_infrastructure(user_email, infra_id, infra_name):
+    with get_connection() as con:
+        cur = con.cursor()
+        cur.execute("DELETE FROM infrastructure WHERE id = ?", (infra_id,))
+        con.commit()
+        log_change(user_email, "DELETE", "Infrastructure", infra_name)
+
 # Audit Log Functions
 def get_audit_log():
     with get_connection() as con:
@@ -432,11 +496,13 @@ def main():
     st.title("Service Portfolio Manager")
     st.write("Track IT Units, applications, and internal IT services to identify overlaps and cost-saving opportunities.")
 
-    tab_names = ["IT Units", "Applications", "IT Services", "Dashboard", "Settings", "Audit Log"]
-    unit_tab, app_tab, service_tab, dashboard_tab, settings_tab, audit_tab = st.tabs(tab_names)
+    tab_names = ["IT Units", "Applications", "Infrastructure", "IT Services", "Dashboard", "Settings", "Audit Log"]
+    unit_tab, app_tab, infra_tab, service_tab, dashboard_tab, settings_tab, audit_tab = st.tabs(tab_names)
 
     it_units_df_all = get_it_units()
     it_unit_options_all = dict(zip(it_units_df_all['id'], it_units_df_all['name']))
+    vendors_df_all = get_lookup_data('vendors')
+    vendor_options_all = dict(zip(vendors_df_all['id'], vendors_df_all['name']))
 
     with unit_tab:
         st.header("Manage IT Units")
@@ -608,6 +674,98 @@ def main():
                     st.session_state.confirming_delete_app = app_to_edit_id
                     st.rerun()
 
+    with infra_tab:
+        st.header("Manage Infrastructure")
+        st.info(TAB_INSTRUCTIONS["Infrastructure"])
+        
+        with st.expander("➕ Add New Infrastructure"):
+            if it_units_df_all.empty:
+                st.warning("Please add at least one IT Unit before adding infrastructure.")
+            else:
+                with st.form("add_infra_form", clear_on_submit=True):
+                    name = st.text_input("Infrastructure Name / Hostname")
+                    it_unit_id = st.selectbox("Managing IT Unit", options=it_unit_options_all.keys(), format_func=it_unit_options_all.get)
+                    vendor_id = st.selectbox("Vendor (Optional)", options=[None] + list(vendor_options_all.keys()), format_func=lambda x: "None" if x is None else vendor_options_all.get(x))
+                    location = st.text_input("Location (e.g., Data Center, Cloud Region)")
+                    status = st.selectbox("Status", options=["Production", "Staging", "Development", "Decommissioned"])
+                    purchase_date = st.date_input("Purchase Date", value=datetime.date.today())
+                    warranty_expiry = st.date_input("Warranty Expiry Date", value=datetime.date.today() + datetime.timedelta(days=365))
+                    cost = st.number_input("Annual Maintenance Cost ($)", min_value=0.0, format="%.2f")
+                    notes = st.text_area("Notes")
+
+                    if st.form_submit_button("Save Infrastructure") and name:
+                        add_infrastructure(user_email, name, it_unit_id, vendor_id, location, status, str(purchase_date), str(warranty_expiry), cost, notes)
+                        st.success(f"Added infrastructure: {name}")
+                        st.rerun()
+
+        st.divider()
+        st.subheader("Filter and Search Infrastructure")
+        infra_f1, infra_f2, infra_f3, infra_f4 = st.columns(4)
+        search_infra = infra_f1.text_input("Search by Name", key="infra_search")
+        filter_infra_unit = infra_f2.multiselect("Filter by IT Unit", options=it_unit_options_all.values(), key="infra_unit_filter")
+        filter_infra_vendor = infra_f3.multiselect("Filter by Vendor", options=vendor_options_all.values(), key="infra_vendor_filter")
+        filter_infra_status = infra_f4.multiselect("Filter by Status", options=["Production", "Staging", "Development", "Decommissioned"], key="infra_status_filter")
+
+        infra_df = get_infrastructure()
+        filtered_infra_df = infra_df.copy()
+
+        if search_infra: filtered_infra_df = filtered_infra_df[filtered_infra_df['name'].str.contains(search_infra, case=False, na=False)]
+        if filter_infra_unit: filtered_infra_df = filtered_infra_df[filtered_infra_df['managing_it_unit'].isin(filter_infra_unit)]
+        if filter_infra_vendor: filtered_infra_df = filtered_infra_df[filtered_infra_df['vendor'].isin(filter_infra_vendor)]
+        if filter_infra_status: filtered_infra_df = filtered_infra_df[filtered_infra_df['status'].isin(filter_infra_status)]
+        
+        st.dataframe(filtered_infra_df, width='stretch')
+        csv_infra = convert_df_to_csv(filtered_infra_df)
+        st.download_button(label="Download data as CSV", data=csv_infra, file_name='infrastructure_export.csv', mime='text/csv')
+
+        st.subheader("Edit or Delete Infrastructure")
+        infra_options_all = dict(zip(infra_df['id'], infra_df['name']))
+        infra_to_edit_id = st.selectbox("Select an item", options=[None] + list(infra_options_all.keys()), format_func=lambda x: "---" if x is None else infra_options_all.get(x))
+
+        if infra_to_edit_id:
+            infra_details = get_infrastructure_details(infra_to_edit_id)
+            if 'confirming_delete_infra' in st.session_state and st.session_state.confirming_delete_infra == infra_to_edit_id:
+                st.warning(f"**Are you sure you want to delete '{infra_details['name']}'?**")
+                c1, c2 = st.columns(2)
+                if c1.button("Yes, delete it", key="confirm_del_infra"):
+                    delete_infrastructure(user_email, infra_to_edit_id, infra_details['name'])
+                    st.session_state.pop('confirming_delete_infra', None)
+                    st.success(f"Deleted: {infra_details['name']}")
+                    st.rerun()
+                if c2.button("Cancel", key="cancel_del_infra"):
+                    st.session_state.pop('confirming_delete_infra', None)
+                    st.rerun()
+            
+            with st.form(f"edit_infra_form_{infra_to_edit_id}"):
+                st.write(f"**Editing: {infra_details['name']}**")
+                edit_name = st.text_input("Name", value=infra_details['name'])
+                
+                default_unit_idx = list(it_unit_options_all.keys()).index(infra_details['it_unit_id']) if infra_details.get('it_unit_id') in it_unit_options_all else 0
+                edit_it_unit_id = st.selectbox("Managing IT Unit", options=it_unit_options_all.keys(), format_func=it_unit_options_all.get, index=default_unit_idx)
+
+                vendor_keys = [None] + list(vendor_options_all.keys())
+                default_vendor_idx = vendor_keys.index(infra_details.get('vendor_id')) if infra_details.get('vendor_id') in vendor_keys else 0
+                edit_vendor_id = st.selectbox("Vendor", options=vendor_keys, format_func=lambda x: "None" if x is None else vendor_options_all.get(x), index=default_vendor_idx)
+                
+                edit_location = st.text_input("Location", value=infra_details.get('location') or '')
+                status_options = ["Production", "Staging", "Development", "Decommissioned"]
+                default_status_idx = status_options.index(infra_details.get('status')) if infra_details.get('status') in status_options else 0
+                edit_status = st.selectbox("Status", options=status_options, index=default_status_idx)
+                
+                edit_purchase_date = st.date_input("Purchase Date", value=pd.to_datetime(infra_details['purchase_date']))
+                edit_warranty_expiry = st.date_input("Warranty Expiry Date", value=pd.to_datetime(infra_details['warranty_expiry']))
+                edit_cost = st.number_input("Annual Maintenance Cost ($)", min_value=0.0, format="%.2f", value=float(infra_details.get('annual_maintenance_cost') or 0.0))
+                edit_notes = st.text_area("Notes", value=infra_details.get('notes') or '')
+
+                del_col, save_col = st.columns([1, 6])
+                if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
+                    update_infrastructure(user_email, infra_to_edit_id, edit_name, edit_it_unit_id, edit_vendor_id, edit_location, edit_status, str(edit_purchase_date), str(edit_warranty_expiry), edit_cost, edit_notes)
+                    st.success("Infrastructure item updated.")
+                    st.rerun()
+                if del_col.form_submit_button("DELETE"):
+                    st.session_state.confirming_delete_infra = infra_to_edit_id
+                    st.rerun()
+    
     with service_tab:
         st.header("Manage Internal IT Services")
         st.info(TAB_INSTRUCTIONS["IT Services"])
@@ -716,17 +874,20 @@ def main():
         all_apps_df = get_applications()
         all_it_units_df = get_it_units()
         all_it_services_df = get_it_services()
+        all_infra_df = get_infrastructure()
         
         st.subheader("High-Level Metrics")
-        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+        metric_col1, metric_col2, metric_col3, metric_col4, metric_col5 = st.columns(5)
         
         total_annual_cost = all_apps_df['annual_cost'].sum() if not all_apps_df.empty else 0.0
         total_it_budget = all_it_services_df['budget_allocation'].sum() if not all_it_services_df.empty else 0.0
+        total_maint_cost = all_infra_df['annual_maintenance_cost'].sum() if not all_infra_df.empty else 0.0
         
         metric_col1.metric("Total IT Units", len(all_it_units_df))
         metric_col2.metric("Total Applications", len(all_apps_df))
-        metric_col3.metric("Total IT Services", len(all_it_services_df))
-        metric_col4.metric("Total Annual Spend/Budget", f"${(total_annual_cost + total_it_budget):,.2f}")
+        metric_col3.metric("Total Infrastructure", len(all_infra_df))
+        metric_col4.metric("Total IT Services", len(all_it_services_df))
+        metric_col5.metric("Total Annual Spend/Budget", f"${(total_annual_cost + total_it_budget + total_maint_cost):,.2f}")
 
         st.divider()
         st.subheader("Consolidation Opportunities")
@@ -735,12 +896,6 @@ def main():
             app_duplicates = all_apps_df[all_apps_df.duplicated(subset=['name'], keep=False)].sort_values(by='name')
             if not app_duplicates.empty:
                 st.warning("Duplicate Applications Found Across IT Units")
-                
-                dup_app_counts = app_duplicates['name'].value_counts().reset_index()
-                dup_app_counts.columns = ['Application', 'Count']
-                fig_dup_apps = px.bar(dup_app_counts, x='Application', y='Count', title='Duplicated Application Counts')
-                st.plotly_chart(fig_dup_apps, use_container_width=True)
-                
                 st.dataframe(app_duplicates[['name', 'managing_it_unit', 'vendor', 'annual_cost']], width='stretch')
             else:
                 st.success("No duplicate application names found.")
@@ -781,6 +936,19 @@ def main():
         else:
             st.info("Add applications to see application-specific insights.")
         
+        if not all_infra_df.empty:
+            st.divider()
+            st.subheader("Infrastructure Visual Insights")
+            infra_chart1, infra_chart2 = st.columns(2)
+            with infra_chart1:
+                maint_cost_by_vendor = all_infra_df.groupby('vendor')['annual_maintenance_cost'].sum().reset_index()
+                fig_maint_cost = px.pie(maint_cost_by_vendor, names='vendor', values='annual_maintenance_cost', title='Annual Maintenance Cost by Vendor')
+                st.plotly_chart(fig_maint_cost, use_container_width=True)
+            with infra_chart2:
+                infra_by_unit = all_infra_df['managing_it_unit'].value_counts().reset_index()
+                fig_infra_by_unit = px.pie(infra_by_unit, names='managing_it_unit', values='count', title='Infrastructure Count by Managing IT Unit')
+                st.plotly_chart(fig_infra_by_unit, use_container_width=True)
+
         if not all_it_services_df.empty:
             st.divider()
             st.subheader("IT Service Visual Insights")
