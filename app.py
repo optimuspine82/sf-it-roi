@@ -476,6 +476,7 @@ def render_lookup_manager(user_email, title, singular_name, table_name):
                 st.session_state.confirming_delete_lookup = {'table': table_name, 'id': item_id, 'name': item_name}
                 st.rerun()
 
+
 def main():
     st.set_page_config(layout="wide", page_title="Service Portfolio Manager")
     
@@ -555,6 +556,7 @@ def main():
                 notes = st.text_area("Notes", value=unit_details.get('notes') or '', height=150)
                 
                 del_col, save_col = st.columns([1, 6])
+                # UPDATE: Replaced deprecated parameter
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
                     update_it_unit_details(user_email, unit_to_edit_id, name, contact_person, contact_email, total_fte, budget_amount, notes)
                     st.success(f"Updated details for {name}")
@@ -564,6 +566,7 @@ def main():
                     st.rerun()
 
         st.subheader("All IT Units")
+        # UPDATE: Replaced deprecated parameter
         st.dataframe(filtered_units_df, width='stretch')
         csv_units = convert_df_to_csv(filtered_units_df)
         st.download_button(label="Download data as CSV", data=csv_units, file_name='it_units_export.csv', mime='text/csv')
@@ -626,7 +629,9 @@ def main():
         search_app = fcol1.text_input("Search by Name")
         filter_unit = fcol2.multiselect("Filter by IT Unit", options=it_unit_options_all.values())
         filter_vendor = fcol3.multiselect("Filter by Vendor", options=vendor_options_all.values())
-        filter_category = fcol4.multiselect("Filter by Category", options=category_options_all.values())
+        # Use a fresh call to get categories for the filter
+        category_options_filter = dict(get_lookup_data('categories')[['id', 'name']].values)
+        filter_category = fcol4.multiselect("Filter by Category", options=category_options_filter.values())
         
         filtered_apps_df = applications_df.copy()
         
@@ -635,6 +640,7 @@ def main():
         if filter_vendor: filtered_apps_df = filtered_apps_df[filtered_apps_df['vendor'].isin(filter_vendor)]
         if filter_category: filtered_apps_df = filtered_apps_df[filtered_apps_df['category'].isin(filter_category)]
 
+        # UPDATE: Replaced deprecated parameter
         st.dataframe(filtered_apps_df, width='stretch')
         csv_apps = convert_df_to_csv(filtered_apps_df)
         st.download_button(label="Download data as CSV", data=csv_apps, file_name='applications_export.csv', mime='text/csv')
@@ -668,10 +674,12 @@ def main():
                 default_vendor_id = app_details.get('vendor_id')
                 default_vendor_idx = vendor_keys.index(default_vendor_id) if default_vendor_id in vendor_keys else 0
                 edit_vendor_id = st.selectbox("Vendor", options=vendor_keys, format_func=lambda x: "None (Internal)" if x is None else vendor_options_all.get(x), index=default_vendor_idx)
-
+                
+                type_options_all = dict(get_lookup_data('service_types')[['id', 'name']].values)
                 default_type_idx = list(type_options_all.keys()).index(app_details['service_type_id']) if app_details.get('service_type_id') in type_options_all else 0
                 edit_type_id = st.selectbox("Type", options=type_options_all.keys(), format_func=type_options_all.get, index=default_type_idx)
                 
+                category_options_all = dict(get_lookup_data('categories')[['id', 'name']].values)
                 default_cat_idx = list(category_options_all.keys()).index(app_details['category_id']) if app_details.get('category_id') in category_options_all else 0
                 edit_category_id = st.selectbox("Category", options=category_options_all.keys(), format_func=category_options_all.get, index=default_cat_idx)
 
@@ -682,8 +690,9 @@ def main():
                 edit_similar_apps = st.text_area("Similar Applications", value=app_details.get('similar_applications') or '')
 
                 del_col, save_col = st.columns([1, 6])
+                # UPDATE: Replaced deprecated parameter
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
-                    update_application(user_email, app_to_edit_id, edit_it_unit_id, edit_vendor_id, edit_name, edit_type_id, edit_category_id, edit_annual_cost, str(edit_renewal), edit_integrations, edit_other_units, edit_similar_apps, edit_service_owner)
+                    update_application(user_email, app_to_edit_id, edit_it_unit_id, edit_vendor_id, edit_name, edit_type_id, edit_category_id, edit_annual_cost, str(edit_renewal.date()), edit_integrations, edit_other_units, edit_similar_apps, edit_service_owner)
                     st.success("Application updated.")
                     st.rerun()
                 if del_col.form_submit_button("DELETE"):
@@ -750,6 +759,7 @@ def main():
         if filter_infra_vendor: filtered_infra_df = filtered_infra_df[filtered_infra_df['vendor'].isin(filter_infra_vendor)]
         if filter_infra_status: filtered_infra_df = filtered_infra_df[filtered_infra_df['status'].isin(filter_infra_status)]
         
+        # UPDATE: Replaced deprecated parameter
         st.dataframe(filtered_infra_df, width='stretch')
         csv_infra = convert_df_to_csv(filtered_infra_df)
         st.download_button(label="Download data as CSV", data=csv_infra, file_name='infrastructure_export.csv', mime='text/csv')
@@ -793,8 +803,9 @@ def main():
                 edit_notes = st.text_area("Notes", value=infra_details.get('notes') or '')
 
                 del_col, save_col = st.columns([1, 6])
+                # UPDATE: Replaced deprecated parameter
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
-                    update_infrastructure(user_email, infra_to_edit_id, edit_name, edit_it_unit_id, edit_vendor_id, edit_location, edit_status, str(edit_purchase_date), str(edit_warranty_expiry), edit_cost, edit_notes)
+                    update_infrastructure(user_email, infra_to_edit_id, edit_name, edit_it_unit_id, edit_vendor_id, edit_location, edit_status, str(edit_purchase_date.date()), str(edit_warranty_expiry.date()), edit_cost, edit_notes)
                     st.success("Infrastructure item updated.")
                     st.rerun()
                 if del_col.form_submit_button("DELETE"):
@@ -856,6 +867,7 @@ def main():
         search_its = fscol1.text_input("Search by Name", key="it_search")
         filter_unit_its = fscol2.multiselect("Filter by IT Unit", options=it_unit_options_all.values(), key="it_unit_filter")
         filter_status_its = fscol3.multiselect("Status", options=["Active", "In Development", "Retired"], key="it_status_filter")
+        sla_options_all = dict(get_lookup_data('sla_levels')[['id', 'name']].values) # Define for filter
         filter_sla_its = fscol4.multiselect("SLA Level", options=sla_options_all.values(), key="it_sla_filter")
 
         filtered_its_df = it_services_df.copy()
@@ -865,6 +877,7 @@ def main():
         if filter_status_its: filtered_its_df = filtered_its_df[filtered_its_df['status'].isin(filter_status_its)]
         if filter_sla_its: filtered_its_df = filtered_its_df[filtered_its_df['sla_level'].isin(filter_sla_its)]
 
+        # UPDATE: Replaced deprecated parameter
         st.dataframe(filtered_its_df, width='stretch')
         csv_its = convert_df_to_csv(filtered_its_df)
         st.download_button(label="Download data as CSV", data=csv_its, file_name='it_services_export.csv', mime='text/csv')
@@ -890,6 +903,12 @@ def main():
                 st.write(f"**Editing: {it_service_details['name']}**")
                 edit_it_name = st.text_input("Service Name", value=it_service_details['name'])
                 
+                unit_keys = [None] + list(it_unit_options_all.keys()) # Redefine for edit form scope
+                status_options = ["Active", "In Development", "Retired"] # Redefine
+                sla_keys = [None] + list(sla_options_all.keys()) # Redefine
+                method_options_all = dict(get_lookup_data('service_methods')[['id', 'name']].values)
+                method_keys = [None] + list(method_options_all.keys()) # Redefine
+
                 default_unit_idx = unit_keys.index(it_service_details.get('it_unit_id')) if it_service_details.get('it_unit_id') in unit_keys else 0
                 edit_it_unit_id = st.selectbox("Providing IT Unit", options=unit_keys, format_func=lambda x: "None" if x is None else it_unit_options_all.get(x), index=default_unit_idx)
                 
@@ -909,6 +928,7 @@ def main():
                 edit_dependencies = st.text_area("Dependencies", value=it_service_details.get('dependencies') or '')
 
                 del_col, save_col = st.columns([1, 6])
+                # UPDATE: Replaced deprecated parameter
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
                     update_it_service(user_email, it_service_to_edit_id, edit_it_name, edit_it_desc, edit_it_unit_id, edit_fte_count, edit_dependencies, edit_service_owner, edit_status, edit_sla_id, edit_method_id, edit_budget)
                     st.success(f"Updated {edit_it_name}")
@@ -946,6 +966,7 @@ def main():
             app_duplicates = all_apps_df[all_apps_df.duplicated(subset=['name'], keep=False)].sort_values(by='name')
             if not app_duplicates.empty:
                 st.warning("Duplicate Applications Found Across IT Units")
+                # UPDATE: Replaced deprecated parameter
                 st.dataframe(app_duplicates[['name', 'managing_it_unit', 'vendor', 'annual_cost']], width='stretch')
             else:
                 st.success("No duplicate application names found.")
@@ -954,14 +975,18 @@ def main():
             service_duplicates = all_it_services_df[all_it_services_df.duplicated(subset=['name'], keep=False)].sort_values(by='name')
             if not service_duplicates.empty:
                 st.warning("Duplicate IT Services Found Across IT Units")
+                # UPDATE: Replaced deprecated parameter
                 st.dataframe(service_duplicates[['name', 'providing_it_unit', 'budget_allocation', 'fte_count']], width='stretch')
             else:
                 st.success("No duplicate IT service names found.")
         
         if not all_apps_df.empty:
-            category_duplicates = all_apps_df.dropna(subset=['category'])[all_apps_df.dropna(subset=['category']).duplicated(subset=['category'], keep=False)].sort_values(by='category')
+            mask = all_apps_df['category'].notna() & all_apps_df.duplicated(subset=['category'], keep=False)
+            category_duplicates = all_apps_df[mask].sort_values(by='category')
+
             if not category_duplicates.empty:
                 st.warning("Overlapping Application Categories Found")
+                # UPDATE: Replaced deprecated parameter
                 st.dataframe(category_duplicates[['category', 'name', 'managing_it_unit', 'vendor']], width='stretch')
             else:
                 st.success("No overlapping application categories found.")
@@ -976,11 +1001,13 @@ def main():
                 st.plotly_chart(fig_vendor_cost, use_container_width=True)
                 
                 apps_by_unit = all_apps_df['managing_it_unit'].value_counts().reset_index()
+                apps_by_unit.columns = ['managing_it_unit', 'count']
                 fig_apps_by_unit = px.pie(apps_by_unit, names='managing_it_unit', values='count', title='Application Count by Managing IT Unit')
                 st.plotly_chart(fig_apps_by_unit, use_container_width=True)
 
             with chart_col2:
                 apps_by_category = all_apps_df['category'].value_counts().reset_index()
+                apps_by_category.columns = ['category', 'count']
                 fig_app_category = px.bar(apps_by_category, x='category', y='count', title='Application Count by Category')
                 st.plotly_chart(fig_app_category, use_container_width=True)
         else:
@@ -996,6 +1023,7 @@ def main():
                 st.plotly_chart(fig_maint_cost, use_container_width=True)
             with infra_chart2:
                 infra_by_unit = all_infra_df['managing_it_unit'].value_counts().reset_index()
+                infra_by_unit.columns = ['managing_it_unit', 'count']
                 fig_infra_by_unit = px.pie(infra_by_unit, names='managing_it_unit', values='count', title='Infrastructure Count by Managing IT Unit')
                 st.plotly_chart(fig_infra_by_unit, use_container_width=True)
 
@@ -1078,6 +1106,7 @@ def main():
                 (filtered_log_df['timestamp'].dt.date <= end_date)
             ]
 
+        # UPDATE: Replaced deprecated parameter
         st.dataframe(filtered_log_df, width='stretch')
         
         csv_audit = convert_df_to_csv(filtered_log_df)
@@ -1091,4 +1120,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
