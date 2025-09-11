@@ -573,36 +573,67 @@ def main():
         st.header("Manage Applications")
         st.info(TAB_INSTRUCTIONS["Applications"])
         
-        vendors_df = get_lookup_data('vendors')
-        vendor_options_all = dict(zip(vendors_df['id'], vendors_df['name']))
-        service_types_df = get_lookup_data('service_types')
-        type_options_all = dict(zip(service_types_df['id'], service_types_df['name']))
-        categories_df = get_lookup_data('categories')
-        category_options_all = dict(zip(categories_df['id'], categories_df['name']))
-
+        applications_df = get_applications()
+        app_options_all = dict(zip(applications_df['id'], applications_df['name']))
+        
         with st.expander("➕ Add New Application"):
             if it_units_df_all.empty:
                 st.warning("Please add at least one IT Unit before adding an application.")
             else:
+                st.subheader("Add a New Application")
+                
+                col1, col2 = st.columns([3, 1])
+                if 'app_to_copy_id' not in st.session_state:
+                    st.session_state.app_to_copy_id = None
+
+                app_to_copy_id = col1.selectbox("Or, copy an existing item to start...", options=[None] + list(app_options_all.keys()), format_func=lambda x: "---" if x is None else app_options_all.get(x), key="copy_app_select")
+                if col2.button("Clear Selection", key="clear_app_copy"):
+                    st.session_state.app_to_copy_id = None
+                    st.rerun()
+                
+                if app_to_copy_id:
+                    st.session_state.app_to_copy_id = app_to_copy_id
+
+                default_vals = {}
+                if st.session_state.app_to_copy_id:
+                    default_vals = get_application_details(st.session_state.app_to_copy_id)
+
                 with st.form("add_app_form", clear_on_submit=True):
-                    app_name = st.text_input("Application Name")
-                    service_owner = st.text_input("Service Owner/Lead")
-                    it_unit_id = st.selectbox("Managing IT Unit", options=it_unit_options_all.keys(), format_func=it_unit_options_all.get)
-                    vendor_id = st.selectbox("Vendor (Optional, for external apps)", options=[None] + list(vendor_options_all.keys()), format_func=lambda x: "None (Internal)" if x is None else vendor_options_all.get(x))
-                    service_type_id = st.selectbox("Type", options=type_options_all.keys(), format_func=type_options_all.get)
-                    category_id = st.selectbox("Category", options=category_options_all.keys(), format_func=category_options_all.get)
-                    annual_cost = st.number_input("Annual Cost ($)", min_value=0.0, format="%.2f")
-                    renewal_date = st.date_input("Next Renewal Date", value=datetime.date.today())
-                    integrations = st.text_area("Known Integrations")
-                    other_units = st.text_area("Other Business Units Using Service", height=100)
-                    similar_apps = st.text_area("Similar Applications (if any)")
+                    app_name = st.text_input("Application Name", value=default_vals.get('name', ''))
+                    service_owner = st.text_input("Service Owner/Lead", value=default_vals.get('service_owner', ''))
+                    
+                    unit_keys = list(it_unit_options_all.keys())
+                    default_unit_idx = unit_keys.index(default_vals.get('it_unit_id')) if default_vals.get('it_unit_id') in unit_keys else 0
+                    it_unit_id = st.selectbox("Managing IT Unit", options=unit_keys, format_func=it_unit_options_all.get, index=default_unit_idx)
+                    
+                    vendor_options_all = dict(get_lookup_data('vendors')[['id', 'name']].values)
+                    vendor_keys = [None] + list(vendor_options_all.keys())
+                    default_vendor_idx = vendor_keys.index(default_vals.get('vendor_id')) if default_vals.get('vendor_id') in vendor_keys else 0
+                    vendor_id = st.selectbox("Vendor (Optional, for external apps)", options=vendor_keys, format_func=lambda x: "None (Internal)" if x is None else vendor_options_all.get(x), index=default_vendor_idx)
+                    
+                    type_options_all = dict(get_lookup_data('service_types')[['id', 'name']].values)
+                    type_keys = list(type_options_all.keys())
+                    default_type_idx = type_keys.index(default_vals.get('service_type_id')) if default_vals.get('service_type_id') in type_keys else 0
+                    service_type_id = st.selectbox("Type", options=type_keys, format_func=type_options_all.get, index=default_type_idx)
+                    
+                    category_options_all = dict(get_lookup_data('categories')[['id', 'name']].values)
+                    category_keys = list(category_options_all.keys())
+                    default_cat_idx = category_keys.index(default_vals.get('category_id')) if default_vals.get('category_id') in category_keys else 0
+                    category_id = st.selectbox("Category", options=category_keys, format_func=category_options_all.get, index=default_cat_idx)
+                    
+                    annual_cost = st.number_input("Annual Cost ($)", min_value=0.0, format="%.2f", value=float(default_vals.get('annual_cost', 0.0)))
+                    renewal_date = st.date_input("Next Renewal Date", value=pd.to_datetime(default_vals.get('renewal_date', datetime.date.today())))
+                    integrations = st.text_area("Known Integrations", value=default_vals.get('integrations', ''))
+                    other_units = st.text_area("Other Business Units Using Service", value=default_vals.get('other_units', ''), height=100)
+                    similar_apps = st.text_area("Similar Applications (if any)", value=default_vals.get('similar_applications', ''))
                     
                     if st.form_submit_button("Save Application") and app_name:
                         add_application(user_email, it_unit_id, vendor_id, app_name, service_type_id, category_id, annual_cost, str(renewal_date), integrations, other_units, similar_apps, service_owner)
+                        st.session_state.app_to_copy_id = None
                         st.success(f"Added application: {app_name}")
                         st.rerun()
-        st.divider()
 
+        st.divider()
         st.subheader("Filter and Search Applications")
         fcol1, fcol2, fcol3, fcol4 = st.columns(4)
         search_app = fcol1.text_input("Search by Name")
@@ -610,7 +641,6 @@ def main():
         filter_vendor = fcol3.multiselect("Filter by Vendor", options=vendor_options_all.values())
         filter_category = fcol4.multiselect("Filter by Category", options=category_options_all.values())
         
-        applications_df = get_applications()
         filtered_apps_df = applications_df.copy()
         
         if search_app: filtered_apps_df = filtered_apps_df[filtered_apps_df['name'].str.contains(search_app, case=False, na=False)]
@@ -623,7 +653,6 @@ def main():
         st.download_button(label="Download data as CSV", data=csv_apps, file_name='applications_export.csv', mime='text/csv')
 
         st.subheader("Edit or Delete an Application")
-        app_options_all = dict(zip(applications_df['id'], applications_df['name']))
         app_to_edit_id = st.selectbox("Select an application", options=[None] + list(app_options_all.keys()), format_func=lambda x: "---" if x is None else app_options_all.get(x))
 
         if app_to_edit_id:
@@ -678,23 +707,55 @@ def main():
         st.header("Manage Infrastructure")
         st.info(TAB_INSTRUCTIONS["Infrastructure"])
         
+        infra_df = get_infrastructure()
+        infra_options_all = dict(zip(infra_df['id'], infra_df['name']))
+
         with st.expander("➕ Add New Infrastructure"):
             if it_units_df_all.empty:
                 st.warning("Please add at least one IT Unit before adding infrastructure.")
             else:
+                st.subheader("Add New Infrastructure")
+                
+                col1, col2 = st.columns([3, 1])
+                if 'infra_to_copy_id' not in st.session_state:
+                    st.session_state.infra_to_copy_id = None
+                
+                infra_to_copy_id = col1.selectbox("Or, copy an existing item to start...", options=[None] + list(infra_options_all.keys()), format_func=lambda x: "---" if x is None else infra_options_all.get(x), key="copy_infra_select")
+                if col2.button("Clear Selection", key="clear_infra_copy"):
+                    st.session_state.infra_to_copy_id = None
+                    st.rerun()
+
+                if infra_to_copy_id:
+                    st.session_state.infra_to_copy_id = infra_to_copy_id
+                
+                default_vals = {}
+                if st.session_state.infra_to_copy_id:
+                    default_vals = get_infrastructure_details(st.session_state.infra_to_copy_id)
+
                 with st.form("add_infra_form", clear_on_submit=True):
-                    name = st.text_input("Infrastructure Name / Hostname")
-                    it_unit_id = st.selectbox("Managing IT Unit", options=it_unit_options_all.keys(), format_func=it_unit_options_all.get)
-                    vendor_id = st.selectbox("Vendor (Optional)", options=[None] + list(vendor_options_all.keys()), format_func=lambda x: "None" if x is None else vendor_options_all.get(x))
-                    location = st.text_input("Location (e.g., Data Center, Cloud Region)")
-                    status = st.selectbox("Status", options=["Production", "Staging", "Development", "Decommissioned"])
-                    purchase_date = st.date_input("Purchase Date", value=datetime.date.today())
-                    warranty_expiry = st.date_input("Warranty Expiry Date", value=datetime.date.today() + datetime.timedelta(days=365))
-                    cost = st.number_input("Annual Maintenance Cost ($)", min_value=0.0, format="%.2f")
-                    notes = st.text_area("Notes")
+                    name = st.text_input("Infrastructure Name / Hostname", value=default_vals.get('name', ''))
+                    
+                    unit_keys = list(it_unit_options_all.keys())
+                    default_unit_idx = unit_keys.index(default_vals.get('it_unit_id')) if default_vals.get('it_unit_id') in unit_keys else 0
+                    it_unit_id = st.selectbox("Managing IT Unit", options=unit_keys, format_func=it_unit_options_all.get, index=default_unit_idx)
+                    
+                    vendor_keys = [None] + list(vendor_options_all.keys())
+                    default_vendor_idx = vendor_keys.index(default_vals.get('vendor_id')) if default_vals.get('vendor_id') in vendor_keys else 0
+                    vendor_id = st.selectbox("Vendor (Optional)", options=vendor_keys, format_func=lambda x: "None" if x is None else vendor_options_all.get(x), index=default_vendor_idx)
+                    
+                    location = st.text_input("Location (e.g., Data Center, Cloud Region)", value=default_vals.get('location', ''))
+                    status_options = ["Production", "Staging", "Development", "Decommissioned"]
+                    default_status_idx = status_options.index(default_vals.get('status')) if default_vals.get('status') in status_options else 0
+                    status = st.selectbox("Status", options=status_options, index=default_status_idx)
+                    
+                    purchase_date = st.date_input("Purchase Date", value=pd.to_datetime(default_vals.get('purchase_date', datetime.date.today())))
+                    warranty_expiry = st.date_input("Warranty Expiry Date", value=pd.to_datetime(default_vals.get('warranty_expiry', datetime.date.today() + datetime.timedelta(days=365))))
+                    cost = st.number_input("Annual Maintenance Cost ($)", min_value=0.0, format="%.2f", value=float(default_vals.get('annual_maintenance_cost', 0.0)))
+                    notes = st.text_area("Notes", value=default_vals.get('notes', ''))
 
                     if st.form_submit_button("Save Infrastructure") and name:
                         add_infrastructure(user_email, name, it_unit_id, vendor_id, location, status, str(purchase_date), str(warranty_expiry), cost, notes)
+                        st.session_state.infra_to_copy_id = None
                         st.success(f"Added infrastructure: {name}")
                         st.rerun()
 
@@ -705,8 +766,7 @@ def main():
         filter_infra_unit = infra_f2.multiselect("Filter by IT Unit", options=it_unit_options_all.values(), key="infra_unit_filter")
         filter_infra_vendor = infra_f3.multiselect("Filter by Vendor", options=vendor_options_all.values(), key="infra_vendor_filter")
         filter_infra_status = infra_f4.multiselect("Filter by Status", options=["Production", "Staging", "Development", "Decommissioned"], key="infra_status_filter")
-
-        infra_df = get_infrastructure()
+        
         filtered_infra_df = infra_df.copy()
 
         if search_infra: filtered_infra_df = filtered_infra_df[filtered_infra_df['name'].str.contains(search_infra, case=False, na=False)]
@@ -719,7 +779,6 @@ def main():
         st.download_button(label="Download data as CSV", data=csv_infra, file_name='infrastructure_export.csv', mime='text/csv')
 
         st.subheader("Edit or Delete Infrastructure")
-        infra_options_all = dict(zip(infra_df['id'], infra_df['name']))
         infra_to_edit_id = st.selectbox("Select an item", options=[None] + list(infra_options_all.keys()), format_func=lambda x: "---" if x is None else infra_options_all.get(x))
 
         if infra_to_edit_id:
@@ -765,31 +824,64 @@ def main():
                 if del_col.form_submit_button("DELETE"):
                     st.session_state.confirming_delete_infra = infra_to_edit_id
                     st.rerun()
-    
+
     with service_tab:
         st.header("Manage Internal IT Services")
         st.info(TAB_INSTRUCTIONS["IT Services"])
         
-        sla_levels_df = get_lookup_data('sla_levels')
-        service_methods_df = get_lookup_data('service_methods')
-        sla_options_all = dict(zip(sla_levels_df['id'], sla_levels_df['name']))
-        method_options_all = dict(zip(service_methods_df['id'], service_methods_df['name']))
-        
+        it_services_df = get_it_services()
+        it_service_options_all = dict(zip(it_services_df['id'], it_services_df['name']))
+
         with st.expander("➕ Add New IT Service"):
+            st.subheader("Add New IT Service")
+
+            col1, col2 = st.columns([3, 1])
+            if 'service_to_copy_id' not in st.session_state:
+                st.session_state.service_to_copy_id = None
+
+            service_to_copy_id = col1.selectbox("Or, copy an existing item to start...", options=[None] + list(it_service_options_all.keys()), format_func=lambda x: "---" if x is None else it_service_options_all.get(x), key="copy_service_select")
+            if col2.button("Clear Selection", key="clear_service_copy"):
+                st.session_state.service_to_copy_id = None
+                st.rerun()
+
+            if service_to_copy_id:
+                st.session_state.service_to_copy_id = service_to_copy_id
+            
+            default_vals = {}
+            if st.session_state.service_to_copy_id:
+                default_vals = get_it_service_details(st.session_state.service_to_copy_id)
+
             with st.form("add_it_service_form", clear_on_submit=True):
-                it_service_name = st.text_input("Service Name")
-                it_unit_id = st.selectbox("Providing IT Unit", options=[None] + list(it_unit_options_all.keys()), format_func=lambda x: "None" if x is None else it_unit_options_all.get(x))
-                status = st.selectbox("Status", options=["Active", "In Development", "Retired"])
-                service_owner = st.text_input("Service Owner/Lead")
-                fte_count = st.number_input("Dedicated FTEs", min_value=0, step=1)
-                budget_allocation = st.number_input("Budget Allocation ($)", min_value=0.0, format="%.2f")
-                sla_id = st.selectbox("SLA Level", options=[None] + list(sla_options_all.keys()), format_func=lambda x: "None" if x is None else sla_options_all.get(x))
-                method_id = st.selectbox("Service Method", options=[None] + list(method_options_all.keys()), format_func=lambda x: "None" if x is None else method_options_all.get(x))
-                it_service_desc = st.text_area("Description")
-                dependencies = st.text_area("Dependencies (e.g., other apps, services)")
+                it_service_name = st.text_input("Service Name", value=default_vals.get('name', ''))
+                
+                unit_keys = [None] + list(it_unit_options_all.keys())
+                default_unit_idx = unit_keys.index(default_vals.get('it_unit_id')) if default_vals.get('it_unit_id') in unit_keys else 0
+                it_unit_id = st.selectbox("Providing IT Unit", options=unit_keys, format_func=lambda x: "None" if x is None else it_unit_options_all.get(x), index=default_unit_idx)
+                
+                status_options = ["Active", "In Development", "Retired"]
+                default_status_idx = status_options.index(default_vals.get('status')) if default_vals.get('status') in status_options else 0
+                status = st.selectbox("Status", options=status_options, index=default_status_idx)
+
+                service_owner = st.text_input("Service Owner/Lead", value=default_vals.get('service_owner', ''))
+                fte_count = st.number_input("Dedicated FTEs", min_value=0, step=1, value=int(default_vals.get('fte_count', 0)))
+                budget_allocation = st.number_input("Budget Allocation ($)", min_value=0.0, format="%.2f", value=float(default_vals.get('budget_allocation', 0.0)))
+
+                sla_options_all = dict(get_lookup_data('sla_levels')[['id', 'name']].values)
+                sla_keys = [None] + list(sla_options_all.keys())
+                default_sla_idx = sla_keys.index(default_vals.get('sla_level_id')) if default_vals.get('sla_level_id') in sla_keys else 0
+                sla_id = st.selectbox("SLA Level", options=sla_keys, format_func=lambda x: "None" if x is None else sla_options_all.get(x), index=default_sla_idx)
+
+                method_options_all = dict(get_lookup_data('service_methods')[['id', 'name']].values)
+                method_keys = [None] + list(method_options_all.keys())
+                default_method_idx = method_keys.index(default_vals.get('service_method_id')) if default_vals.get('service_method_id') in method_keys else 0
+                method_id = st.selectbox("Service Method", options=method_keys, format_func=lambda x: "None" if x is None else method_options_all.get(x), index=default_method_idx)
+                
+                it_service_desc = st.text_area("Description", value=default_vals.get('description', ''))
+                dependencies = st.text_area("Dependencies (e.g., other apps, services)", value=default_vals.get('dependencies', ''))
                 
                 if st.form_submit_button("Add Service") and it_service_name:
                     add_it_service(user_email, it_service_name, it_service_desc, it_unit_id, fte_count, dependencies, service_owner, status, sla_id, method_id, budget_allocation)
+                    st.session_state.service_to_copy_id = None
                     st.success(f"Added service: {it_service_name}")
                     st.rerun()
         
@@ -801,7 +893,6 @@ def main():
         filter_status_its = fscol3.multiselect("Status", options=["Active", "In Development", "Retired"], key="it_status_filter")
         filter_sla_its = fscol4.multiselect("SLA Level", options=sla_options_all.values(), key="it_sla_filter")
 
-        it_services_df = get_it_services()
         filtered_its_df = it_services_df.copy()
 
         if search_its: filtered_its_df = filtered_its_df[filtered_its_df['name'].str.contains(search_its, case=False, na=False)]
@@ -814,7 +905,6 @@ def main():
         st.download_button(label="Download data as CSV", data=csv_its, file_name='it_services_export.csv', mime='text/csv')
         
         st.subheader("Edit or Delete an IT Service")
-        it_service_options_all = dict(zip(it_services_df['id'], it_services_df['name']))
         it_service_to_edit_id = st.selectbox("Select a service", options=[None] + list(it_service_options_all.keys()), format_func=lambda x: "---" if x is None else it_service_options_all.get(x))
 
         if it_service_to_edit_id:
@@ -835,20 +925,15 @@ def main():
                 st.write(f"**Editing: {it_service_details['name']}**")
                 edit_it_name = st.text_input("Service Name", value=it_service_details['name'])
                 
-                unit_keys = [None] + list(it_unit_options_all.keys())
-                default_unit_id = it_service_details.get('it_unit_id')
-                default_unit_idx = unit_keys.index(default_unit_id) if default_unit_id in unit_keys else 0
+                default_unit_idx = unit_keys.index(it_service_details.get('it_unit_id')) if it_service_details.get('it_unit_id') in unit_keys else 0
                 edit_it_unit_id = st.selectbox("Providing IT Unit", options=unit_keys, format_func=lambda x: "None" if x is None else it_unit_options_all.get(x), index=default_unit_idx)
                 
-                status_options = ["Active", "In Development", "Retired"]
                 default_status_idx = status_options.index(it_service_details.get('status')) if it_service_details.get('status') in status_options else 0
                 edit_status = st.selectbox("Status", options=status_options, index=default_status_idx)
                 
-                sla_keys = [None] + list(sla_options_all.keys())
                 default_sla_idx = sla_keys.index(it_service_details.get('sla_level_id')) if it_service_details.get('sla_level_id') in sla_keys else 0
                 edit_sla_id = st.selectbox("SLA Level", options=sla_keys, format_func=lambda x: "None" if x is None else sla_options_all.get(x), index=default_sla_idx)
 
-                method_keys = [None] + list(method_options_all.keys())
                 default_method_idx = method_keys.index(it_service_details.get('service_method_id')) if it_service_details.get('service_method_id') in method_keys else 0
                 edit_method_id = st.selectbox("Service Method", options=method_keys, format_func=lambda x: "None" if x is None else method_options_all.get(x), index=default_method_idx)
 
