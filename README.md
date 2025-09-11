@@ -65,19 +65,7 @@ Setup and Installation
     Install the required dependencies:
 
     pip install -r requirements.txt
-
-    Configure Authorized Users:
-
-        Open the config.py file.
-
-        Add the email addresses of all authorized users to the ALLOWED_EMAILS set.
-
-    # Example from config.py
-    ALLOWED_EMAILS = {
-        "user1@yourdomain.com",
-        "user2@yourdomain.com",
-    }
-
+    
 Running the Application
 
     From your project's root directory, run the following command in your terminal:
@@ -89,8 +77,6 @@ Running the Application
 File Structure
 
     app.py: The main Streamlit application script containing all UI and backend logic.
-
-    config.py: Contains the list of authorized emails for authentication.
 
     requirements.txt: A list of all Python packages required to run the application.
 
