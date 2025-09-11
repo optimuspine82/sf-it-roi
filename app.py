@@ -17,7 +17,8 @@ TAB_INSTRUCTIONS = {
     "IT Services": "Manage all internal services provided by your IT Units, such as the Help Desk or Classroom Support. You can track budget, FTEs, and service level details.",
     "Dashboard": "Get a high-level visual overview of your portfolio. This dashboard highlights total costs, shows spending by vendor, and application distribution by IT Unit.",
     "Settings": "Configure the dropdown options used throughout the application. Add or remove Vendors, Application Types, Categories, etc., to customize the forms to your needs.",
-    "Audit Log": "View a complete history of all changes made within the application. You can filter the log by user, item type, or date range to track activity."
+    "Audit Log": "View a complete history of all changes made within the application. You can filter the log by user, item type, or date range to track activity.",
+    "Bulk Import": "Upload multiple records at once using a CSV file. Select the data type you wish to import, download the template, fill it in, and upload it here."
 }
 
 def check_authentication():
@@ -197,24 +198,26 @@ def get_it_unit_details(unit_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_it_unit(user_email, name, contact_person="", contact_email="", total_fte=0, budget_amount=0.0, notes=""):
+def add_it_unit(user_email, name, contact_person="", contact_email="", total_fte=0, budget_amount=0.0, notes="", bulk=False):
     """Adds a new IT Unit if the name doesn't exist, returns the unit's ID."""
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("SELECT id FROM it_units WHERE name = ?", (name,))
         existing = cur.fetchone()
         if existing:
-            st.warning(f"IT Unit '{name}' already exists.")
-            return existing[0]
+            # Return a warning string instead of raising an error for bulk import
+            return f"IT Unit '{name}' already exists."
 
         cur.execute("""
             INSERT INTO it_units (name, contact_person, contact_email, total_fte, budget_amount, notes)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (name, contact_person, contact_email, total_fte, budget_amount, notes))
         con.commit()
-        log_change(user_email, "CREATE", "IT Unit", name)
-        st.success(f"Added new IT Unit: {name}")
-        return cur.lastrowid
+        details = "Bulk Import" if bulk else ""
+        log_change(user_email, "CREATE", "IT Unit", name, details=details)
+        if not bulk:
+            st.success(f"Added new IT Unit: {name}")
+        return True
 
 def update_it_unit_details(user_email, unit_id, name, contact_person, contact_email, total_fte, budget_amount, notes):
     with get_connection() as con:
@@ -289,7 +292,7 @@ def get_application_details(app_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_application(user_email, it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, service_owner):
+def add_application(user_email, it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, service_owner, bulk=False):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute(
@@ -298,7 +301,11 @@ def add_application(user_email, it_unit_id, vendor_id, name, service_type_id, ca
             (it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, service_owner)
         )
         con.commit()
-        log_change(user_email, "CREATE", "Application", name)
+        details = "Bulk Import" if bulk else ""
+        log_change(user_email, "CREATE", "Application", name, details=details)
+        if not bulk:
+            st.success(f"Added application: {name}")
+        return True # for bulk import
 
 def update_application(user_email, app_id, it_unit_id, vendor_id, name, service_type_id, category_id, annual_cost, renewal_date, integrations, other_units, similar_apps, service_owner):
     with get_connection() as con:
@@ -342,7 +349,7 @@ def get_it_service_details(service_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_it_service(user_email, name, desc, it_unit_id, fte, deps, owner, status, sla_id, method_id, budget):
+def add_it_service(user_email, name, desc, it_unit_id, fte, deps, owner, status, sla_id, method_id, budget, bulk=False):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("""
@@ -350,7 +357,11 @@ def add_it_service(user_email, name, desc, it_unit_id, fte, deps, owner, status,
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (name, desc, it_unit_id, fte, deps, owner, status, sla_id, method_id, budget))
         con.commit()
-        log_change(user_email, "CREATE", "IT Service", name)
+        details = "Bulk Import" if bulk else ""
+        log_change(user_email, "CREATE", "IT Service", name, details=details)
+        if not bulk:
+            st.success(f"Added service: {name}")
+        return True
 
 def update_it_service(user_email, service_id, name, desc, it_unit_id, fte, deps, owner, status, sla_id, method_id, budget):
     with get_connection() as con:
@@ -392,7 +403,7 @@ def get_infrastructure_details(infra_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_infrastructure(user_email, name, it_unit_id, vendor_id, location, status, purchase_date, warranty_expiry, cost, notes):
+def add_infrastructure(user_email, name, it_unit_id, vendor_id, location, status, purchase_date, warranty_expiry, cost, notes, bulk=False):
     with get_connection() as con:
         cur = con.cursor()
         cur.execute("""
@@ -400,7 +411,11 @@ def add_infrastructure(user_email, name, it_unit_id, vendor_id, location, status
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (name, it_unit_id, vendor_id, location, status, purchase_date, warranty_expiry, cost, notes))
         con.commit()
-        log_change(user_email, "CREATE", "Infrastructure", name)
+        details = "Bulk Import" if bulk else ""
+        log_change(user_email, "CREATE", "Infrastructure", name, details=details)
+        if not bulk:
+            st.success(f"Added infrastructure: {name}")
+        return True
 
 def update_infrastructure(user_email, infra_id, name, it_unit_id, vendor_id, location, status, purchase_date, warranty_expiry, cost, notes):
     with get_connection() as con:
@@ -496,8 +511,8 @@ def main():
     st.title("Service Portfolio Manager")
     st.write("Track IT Units, applications, and internal IT services to identify overlaps and cost-saving opportunities.")
 
-    tab_names = ["IT Units", "Applications", "Infrastructure", "IT Services", "Dashboard", "Settings", "Audit Log"]
-    unit_tab, app_tab, infra_tab, service_tab, dashboard_tab, settings_tab, audit_tab = st.tabs(tab_names)
+    tab_names = ["IT Units", "Applications", "Infrastructure", "IT Services", "Dashboard", "Settings", "Audit Log", "Bulk Import"]
+    unit_tab, app_tab, infra_tab, service_tab, dashboard_tab, settings_tab, audit_tab, import_tab = st.tabs(tab_names)
 
     it_units_df_all = get_it_units()
     it_unit_options_all = dict(zip(it_units_df_all['id'], it_units_df_all['name']))
@@ -517,7 +532,11 @@ def main():
                 budget_amount = st.number_input("Annual Budget ($)", min_value=0.0, format="%.2f")
                 notes = st.text_area("Notes", height=150)
                 if st.form_submit_button("Add IT Unit") and name:
-                    add_it_unit(user_email, name, contact_person, contact_email, total_fte, budget_amount, notes)
+                    result = add_it_unit(user_email, name, contact_person, contact_email, total_fte, budget_amount, notes)
+                    if isinstance(result, str):
+                        st.warning(result)
+                    else:
+                        st.success(f"Added new IT Unit: {name}")
                     st.rerun()
         
         st.divider()
@@ -556,7 +575,6 @@ def main():
                 notes = st.text_area("Notes", value=unit_details.get('notes') or '', height=150)
                 
                 del_col, save_col = st.columns([1, 6])
-                # UPDATE: Replaced deprecated parameter
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
                     update_it_unit_details(user_email, unit_to_edit_id, name, contact_person, contact_email, total_fte, budget_amount, notes)
                     st.success(f"Updated details for {name}")
@@ -566,7 +584,6 @@ def main():
                     st.rerun()
 
         st.subheader("All IT Units")
-        # UPDATE: Replaced deprecated parameter
         st.dataframe(filtered_units_df, width='stretch')
         csv_units = convert_df_to_csv(filtered_units_df)
         st.download_button(label="Download data as CSV", data=csv_units, file_name='it_units_export.csv', mime='text/csv')
@@ -620,7 +637,6 @@ def main():
                     
                     if st.form_submit_button("Save Application") and app_name:
                         add_application(user_email, it_unit_id, vendor_id, app_name, service_type_id, category_id, annual_cost, str(renewal_date), integrations, other_units, similar_apps, service_owner)
-                        st.success(f"Added application: {app_name}")
                         st.rerun()
 
         st.divider()
@@ -629,7 +645,6 @@ def main():
         search_app = fcol1.text_input("Search by Name")
         filter_unit = fcol2.multiselect("Filter by IT Unit", options=it_unit_options_all.values())
         filter_vendor = fcol3.multiselect("Filter by Vendor", options=vendor_options_all.values())
-        # Use a fresh call to get categories for the filter
         category_options_filter = dict(get_lookup_data('categories')[['id', 'name']].values)
         filter_category = fcol4.multiselect("Filter by Category", options=category_options_filter.values())
         
@@ -640,7 +655,6 @@ def main():
         if filter_vendor: filtered_apps_df = filtered_apps_df[filtered_apps_df['vendor'].isin(filter_vendor)]
         if filter_category: filtered_apps_df = filtered_apps_df[filtered_apps_df['category'].isin(filter_category)]
 
-        # UPDATE: Replaced deprecated parameter
         st.dataframe(filtered_apps_df, width='stretch')
         csv_apps = convert_df_to_csv(filtered_apps_df)
         st.download_button(label="Download data as CSV", data=csv_apps, file_name='applications_export.csv', mime='text/csv')
@@ -690,7 +704,6 @@ def main():
                 edit_similar_apps = st.text_area("Similar Applications", value=app_details.get('similar_applications') or '')
 
                 del_col, save_col = st.columns([1, 6])
-                # UPDATE: Replaced deprecated parameter
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
                     update_application(user_email, app_to_edit_id, edit_it_unit_id, edit_vendor_id, edit_name, edit_type_id, edit_category_id, edit_annual_cost, str(edit_renewal.date()), edit_integrations, edit_other_units, edit_similar_apps, edit_service_owner)
                     st.success("Application updated.")
@@ -741,7 +754,6 @@ def main():
 
                     if st.form_submit_button("Save Infrastructure") and name:
                         add_infrastructure(user_email, name, it_unit_id, vendor_id, location, status, str(purchase_date), str(warranty_expiry), cost, notes)
-                        st.success(f"Added infrastructure: {name}")
                         st.rerun()
 
         st.divider()
@@ -759,7 +771,6 @@ def main():
         if filter_infra_vendor: filtered_infra_df = filtered_infra_df[filtered_infra_df['vendor'].isin(filter_infra_vendor)]
         if filter_infra_status: filtered_infra_df = filtered_infra_df[filtered_infra_df['status'].isin(filter_infra_status)]
         
-        # UPDATE: Replaced deprecated parameter
         st.dataframe(filtered_infra_df, width='stretch')
         csv_infra = convert_df_to_csv(filtered_infra_df)
         st.download_button(label="Download data as CSV", data=csv_infra, file_name='infrastructure_export.csv', mime='text/csv')
@@ -803,7 +814,6 @@ def main():
                 edit_notes = st.text_area("Notes", value=infra_details.get('notes') or '')
 
                 del_col, save_col = st.columns([1, 6])
-                # UPDATE: Replaced deprecated parameter
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
                     update_infrastructure(user_email, infra_to_edit_id, edit_name, edit_it_unit_id, edit_vendor_id, edit_location, edit_status, str(edit_purchase_date.date()), str(edit_warranty_expiry.date()), edit_cost, edit_notes)
                     st.success("Infrastructure item updated.")
@@ -858,7 +868,6 @@ def main():
                 
                 if st.form_submit_button("Add Service") and it_service_name:
                     add_it_service(user_email, it_service_name, it_service_desc, it_unit_id, fte_count, dependencies, service_owner, status, sla_id, method_id, budget_allocation)
-                    st.success(f"Added service: {it_service_name}")
                     st.rerun()
         
         st.divider()
@@ -867,7 +876,7 @@ def main():
         search_its = fscol1.text_input("Search by Name", key="it_search")
         filter_unit_its = fscol2.multiselect("Filter by IT Unit", options=it_unit_options_all.values(), key="it_unit_filter")
         filter_status_its = fscol3.multiselect("Status", options=["Active", "In Development", "Retired"], key="it_status_filter")
-        sla_options_all = dict(get_lookup_data('sla_levels')[['id', 'name']].values) # Define for filter
+        sla_options_all = dict(get_lookup_data('sla_levels')[['id', 'name']].values)
         filter_sla_its = fscol4.multiselect("SLA Level", options=sla_options_all.values(), key="it_sla_filter")
 
         filtered_its_df = it_services_df.copy()
@@ -877,7 +886,6 @@ def main():
         if filter_status_its: filtered_its_df = filtered_its_df[filtered_its_df['status'].isin(filter_status_its)]
         if filter_sla_its: filtered_its_df = filtered_its_df[filtered_its_df['sla_level'].isin(filter_sla_its)]
 
-        # UPDATE: Replaced deprecated parameter
         st.dataframe(filtered_its_df, width='stretch')
         csv_its = convert_df_to_csv(filtered_its_df)
         st.download_button(label="Download data as CSV", data=csv_its, file_name='it_services_export.csv', mime='text/csv')
@@ -903,11 +911,11 @@ def main():
                 st.write(f"**Editing: {it_service_details['name']}**")
                 edit_it_name = st.text_input("Service Name", value=it_service_details['name'])
                 
-                unit_keys = [None] + list(it_unit_options_all.keys()) # Redefine for edit form scope
-                status_options = ["Active", "In Development", "Retired"] # Redefine
-                sla_keys = [None] + list(sla_options_all.keys()) # Redefine
+                unit_keys = [None] + list(it_unit_options_all.keys())
+                status_options = ["Active", "In Development", "Retired"]
+                sla_keys = [None] + list(sla_options_all.keys())
                 method_options_all = dict(get_lookup_data('service_methods')[['id', 'name']].values)
-                method_keys = [None] + list(method_options_all.keys()) # Redefine
+                method_keys = [None] + list(method_options_all.keys())
 
                 default_unit_idx = unit_keys.index(it_service_details.get('it_unit_id')) if it_service_details.get('it_unit_id') in unit_keys else 0
                 edit_it_unit_id = st.selectbox("Providing IT Unit", options=unit_keys, format_func=lambda x: "None" if x is None else it_unit_options_all.get(x), index=default_unit_idx)
@@ -928,7 +936,6 @@ def main():
                 edit_dependencies = st.text_area("Dependencies", value=it_service_details.get('dependencies') or '')
 
                 del_col, save_col = st.columns([1, 6])
-                # UPDATE: Replaced deprecated parameter
                 if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
                     update_it_service(user_email, it_service_to_edit_id, edit_it_name, edit_it_desc, edit_it_unit_id, edit_fte_count, edit_dependencies, edit_service_owner, edit_status, edit_sla_id, edit_method_id, edit_budget)
                     st.success(f"Updated {edit_it_name}")
@@ -966,7 +973,6 @@ def main():
             app_duplicates = all_apps_df[all_apps_df.duplicated(subset=['name'], keep=False)].sort_values(by='name')
             if not app_duplicates.empty:
                 st.warning("Duplicate Applications Found Across IT Units")
-                # UPDATE: Replaced deprecated parameter
                 st.dataframe(app_duplicates[['name', 'managing_it_unit', 'vendor', 'annual_cost']], width='stretch')
             else:
                 st.success("No duplicate application names found.")
@@ -975,7 +981,6 @@ def main():
             service_duplicates = all_it_services_df[all_it_services_df.duplicated(subset=['name'], keep=False)].sort_values(by='name')
             if not service_duplicates.empty:
                 st.warning("Duplicate IT Services Found Across IT Units")
-                # UPDATE: Replaced deprecated parameter
                 st.dataframe(service_duplicates[['name', 'providing_it_unit', 'budget_allocation', 'fte_count']], width='stretch')
             else:
                 st.success("No duplicate IT service names found.")
@@ -986,7 +991,6 @@ def main():
 
             if not category_duplicates.empty:
                 st.warning("Overlapping Application Categories Found")
-                # UPDATE: Replaced deprecated parameter
                 st.dataframe(category_duplicates[['category', 'name', 'managing_it_unit', 'vendor']], width='stretch')
             else:
                 st.success("No overlapping application categories found.")
@@ -1084,7 +1088,6 @@ def main():
         st.subheader("Filter Audit Log")
         log_f1, log_f2, log_f3 = st.columns(3)
 
-        # Ensure timestamp is datetime for filtering
         audit_df['timestamp'] = pd.to_datetime(audit_df['timestamp'])
 
         filter_user = log_f1.multiselect("Filter by User", options=audit_df['user_email'].unique())
@@ -1106,7 +1109,6 @@ def main():
                 (filtered_log_df['timestamp'].dt.date <= end_date)
             ]
 
-        # UPDATE: Replaced deprecated parameter
         st.dataframe(filtered_log_df, width='stretch')
         
         csv_audit = convert_df_to_csv(filtered_log_df)
@@ -1116,6 +1118,162 @@ def main():
             file_name='audit_log_export.csv',
             mime='text/csv',
         )
+    
+    with import_tab:
+        st.header("Bulk Import from CSV")
+        st.info(TAB_INSTRUCTIONS["Bulk Import"])
+        
+        template_cols = {
+            "IT Units": ["name", "contact_person", "contact_email", "total_fte", "budget_amount", "notes"],
+            "Applications": ["name", "service_owner", "managing_it_unit_name", "vendor_name", "type_name", "category_name", "annual_cost", "renewal_date", "integrations", "other_units", "similar_applications"],
+            "Infrastructure": ["name", "managing_it_unit_name", "vendor_name", "location", "status", "purchase_date", "warranty_expiry", "annual_maintenance_cost", "notes"],
+            "IT Services": ["name", "providing_it_unit_name", "status", "service_owner", "fte_count", "budget_allocation", "sla_level_name", "service_method_name", "description", "dependencies"]
+        }
+
+        import_type = st.selectbox("1. Select data type to import", options=list(template_cols.keys()))
+
+        st.subheader("2. Download and Fill Template")
+        st.markdown(f"Download the template for **{import_type}**, fill it in, and save it as a CSV file. **Do not change the column headers.**")
+        
+        template_df = pd.DataFrame(columns=template_cols[import_type])
+        template_csv = convert_df_to_csv(template_df)
+        st.download_button(
+            label=f"Download {import_type} Template",
+            data=template_csv,
+            file_name=f"{import_type.lower().replace(' ', '_')}_template.csv",
+            mime='text/csv'
+        )
+        
+        st.divider()
+        st.subheader("3. Upload Completed CSV File")
+        uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+
+        if uploaded_file is not None:
+            try:
+                import_df = pd.read_csv(uploaded_file)
+                
+                if not all(col in import_df.columns for col in template_cols[import_type]):
+                    st.error(f"The uploaded file is missing one or more required columns. Please use the template provided. Required columns: {template_cols[import_type]}")
+                else:
+                    st.success("File uploaded successfully. Click the button below to process the records.")
+                    if st.button(f"Process {import_type} Import", type="primary"):
+                        process_import(import_type, import_df, user_email)
+
+            except Exception as e:
+                st.error(f"An error occurred while reading the file: {e}")
+
+# --- BULK IMPORT PROCESSING LOGIC (WITH FIX) ---
+def process_import(import_type, df, user_email):
+    """Main function to route the import DF to the correct processor."""
+    success_log = []
+    error_log = []
+    
+    # Get mapping tables for foreign keys
+    it_units_map = pd.read_sql("SELECT id, name FROM it_units", get_connection()).set_index('name')['id'].to_dict()
+    vendors_map = pd.read_sql("SELECT id, name FROM vendors", get_connection()).set_index('name')['id'].to_dict()
+    types_map = pd.read_sql("SELECT id, name FROM service_types", get_connection()).set_index('name')['id'].to_dict()
+    categories_map = pd.read_sql("SELECT id, name FROM categories", get_connection()).set_index('name')['id'].to_dict()
+    slas_map = pd.read_sql("SELECT id, name FROM sla_levels", get_connection()).set_index('name')['id'].to_dict()
+    methods_map = pd.read_sql("SELECT id, name FROM service_methods", get_connection()).set_index('name')['id'].to_dict()
+
+    with st.spinner(f"Importing {len(df)} records for {import_type}..."):
+        for index, row in df.iterrows():
+            try:
+                if import_type == "IT Units":
+                    # FIX: Handle empty cells for numeric values
+                    fte_val = row.get('total_fte')
+                    budget_val = row.get('budget_amount')
+                    result = add_it_unit(
+                        user_email,
+                        name=row['name'],
+                        contact_person=row.get('contact_person'),
+                        contact_email=row.get('contact_email'),
+                        total_fte=int(fte_val) if pd.notna(fte_val) else 0,
+                        budget_amount=float(budget_val) if pd.notna(budget_val) else 0.0,
+                        notes=row.get('notes'),
+                        bulk=True
+                    )
+                    if isinstance(result, str):
+                        raise ValueError(result)
+
+                elif import_type == "Applications":
+                    it_unit_id = it_units_map.get(row['managing_it_unit_name'])
+                    if not it_unit_id: raise ValueError(f"IT Unit '{row['managing_it_unit_name']}' not found.")
+                    
+                    vendor_id = vendors_map.get(row.get('vendor_name')) if pd.notna(row.get('vendor_name')) else None
+                    type_id = types_map.get(row['type_name'])
+                    if not type_id: raise ValueError(f"Type '{row['type_name']}' not found.")
+                    
+                    category_id = categories_map.get(row['category_name'])
+                    if not category_id: raise ValueError(f"Category '{row['category_name']}' not found.")
+
+                    cost_val = row.get('annual_cost') # FIX
+                    add_application(
+                        user_email, it_unit_id, vendor_id,
+                        name=row['name'],
+                        service_type_id=type_id,
+                        category_id=category_id,
+                        annual_cost=float(cost_val) if pd.notna(cost_val) else 0.0, # FIX
+                        renewal_date=str(pd.to_datetime(row['renewal_date']).date()) if pd.notna(row.get('renewal_date')) else None,
+                        integrations=row.get('integrations'),
+                        other_units=row.get('other_units'),
+                        similar_apps=row.get('similar_applications'),
+                        service_owner=row.get('service_owner'),
+                        bulk=True
+                    )
+
+                elif import_type == "Infrastructure":
+                    it_unit_id = it_units_map.get(row['managing_it_unit_name'])
+                    if not it_unit_id: raise ValueError(f"IT Unit '{row['managing_it_unit_name']}' not found.")
+
+                    vendor_id = vendors_map.get(row.get('vendor_name')) if pd.notna(row.get('vendor_name')) else None
+                    cost_val = row.get('annual_maintenance_cost') # FIX
+
+                    add_infrastructure(
+                        user_email, name=row['name'], it_unit_id=it_unit_id, vendor_id=vendor_id,
+                        location=row.get('location'),
+                        status=row.get('status'),
+                        purchase_date=str(pd.to_datetime(row['purchase_date']).date()) if pd.notna(row.get('purchase_date')) else None,
+                        warranty_expiry=str(pd.to_datetime(row['warranty_expiry']).date()) if pd.notna(row.get('warranty_expiry')) else None,
+                        cost=float(cost_val) if pd.notna(cost_val) else 0.0, # FIX
+                        notes=row.get('notes'),
+                        bulk=True
+                    )
+                    
+                elif import_type == "IT Services":
+                    it_unit_id = it_units_map.get(row['providing_it_unit_name'])
+                    if not it_unit_id: raise ValueError(f"IT Unit '{row['providing_it_unit_name']}' not found.")
+                    
+                    sla_id = slas_map.get(row.get('sla_level_name')) if pd.notna(row.get('sla_level_name')) else None
+                    method_id = methods_map.get(row.get('service_method_name')) if pd.notna(row.get('service_method_name')) else None
+
+                    fte_val = row.get('fte_count') # FIX
+                    budget_val = row.get('budget_allocation') # FIX
+
+                    add_it_service(
+                        user_email, name=row['name'], it_unit_id=it_unit_id, sla_id=sla_id, method_id=method_id,
+                        desc=row.get('description'),
+                        fte=int(fte_val) if pd.notna(fte_val) else 0, # FIX
+                        deps=row.get('dependencies'),
+                        owner=row.get('service_owner'),
+                        status=row.get('status'),
+                        budget=float(budget_val) if pd.notna(budget_val) else 0.0, # FIX
+                        bulk=True
+                    )
+
+                success_log.append(f"Row {index+2}: Successfully imported '{row['name']}'.")
+
+            except Exception as e:
+                error_log.append(f"Row {index+2}: Failed to import '{row.get('name', 'N/A')}'. Reason: {e}")
+
+    st.success(f"Import complete. {len(success_log)} records processed successfully.")
+    if error_log:
+        st.warning(f"{len(error_log)} records failed to import.")
+        with st.expander("View Error Details"):
+            for log in error_log:
+                st.error(log)
+    
+    st.info("To see the imported data in other tabs, you may need to refresh the page.")
 
 
 if __name__ == '__main__':
