@@ -5,13 +5,13 @@ Features
 
 Tabbed Interface: Data is organized into logical sections:
 
-    IT Units: Manage the internal teams responsible for services.
-    Applications: Track both internal and external software.
-    Infrastructure: Catalog physical and cloud hardware.
-    IT Services: Document internal services like help desks.
-    Dashboard: A high-level visual overview of the entire portfolio.
-    Settings: Customize dropdown values used throughout the app.
-    Audit Log: Track all changes made by users.
+    - IT Units: Manage the internal teams responsible for services.
+    - Applications: Track both internal and external software.
+    - Infrastructure: Catalog physical and cloud hardware.
+    - IT Services: Document internal services like help desks.
+    - Dashboard: A high-level visual overview of the entire portfolio.
+    - Settings: Customize dropdown values used throughout the app.
+    - Audit Log: Track all changes made by users.
 
 Full CRUD Functionality: Create, Read, Update, and Delete capabilities for all data types, with confirmation steps to prevent accidental deletion.
 
