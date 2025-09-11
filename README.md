@@ -3,32 +3,32 @@
 A web application built with Python, Streamlit, and SQLite to track and manage an organization's IT portfolio, including internal IT units, applications, infrastructure, and services. The primary goal is to provide a centralized inventory to help identify consolidation opportunities, track spending, and manage ownership.
 Features
 
-    Tabbed Interface: Data is organized into logical sections:
+Tabbed Interface: Data is organized into logical sections:
 
-        IT Units: Manage the internal teams responsible for services.
-        Applications: Track both internal and external software.
-        Infrastructure: Catalog physical and cloud hardware.
-        IT Services: Document internal services like help desks.
-        Dashboard: A high-level visual overview of the entire portfolio.
-        Settings: Customize dropdown values used throughout the app.
-        Audit Log: Track all changes made by users.
+    IT Units: Manage the internal teams responsible for services.
+    Applications: Track both internal and external software.
+    Infrastructure: Catalog physical and cloud hardware.
+    IT Services: Document internal services like help desks.
+    Dashboard: A high-level visual overview of the entire portfolio.
+    Settings: Customize dropdown values used throughout the app.
+    Audit Log: Track all changes made by users.
 
-    Full CRUD Functionality: Create, Read, Update, and Delete capabilities for all data types, with confirmation steps to prevent accidental deletion.
+Full CRUD Functionality: Create, Read, Update, and Delete capabilities for all data types, with confirmation steps to prevent accidental deletion.
 
-    Interactive Dashboard: Utilizes Plotly to create interactive charts and graphs for visualizing costs, duplications, and resource allocation.
+Interactive Dashboard: Utilizes Plotly to create interactive charts and graphs for visualizing costs, duplications, and resource allocation.
 
-    Consolidation Insights: The dashboard automatically identifies and flags:
+Consolidation Insights: The dashboard automatically identifies and flags:
 
-        Duplicate applications or services across different IT Units.
-        Functionally similar applications based on shared categories.
+    Duplicate applications or services across different IT Units.
+    Functionally similar applications based on shared categories.
 
-    Search and Filtering: Each data tab includes robust filtering and search capabilities to easily find specific items.
+Search and Filtering: Each data tab includes robust filtering and search capabilities to easily find specific items.
 
-    Data Export: Export filtered data from any main tab to a CSV file for offline analysis.
+Data Export: Export filtered data from any main tab to a CSV file for offline analysis.
 
-    Simple Authentication: A straightforward, email-based authentication system to control access during testing and deployment.
+Simple Authentication: A straightforward, email-based authentication system to control access during testing and deployment.
 
-    "Quick Add" / Copy Feature: Quickly populate new entries by copying an existing item as a template.
+"Quick Add" / Copy Feature: Quickly populate new entries by copying an existing item as a template.
 
 ## Prerequisites
 
@@ -71,8 +71,6 @@ Features
 ## File Structure
 
     app.py: The main Streamlit application script containing all UI and backend logic.
-
-    config.py: Contains the list of authorized emails for authentication.
 
     requirements.txt: A list of all Python packages required to run the application.
     portfolio.db: The SQLite database file. This file is automatically created in the root directory the first time the application is run.
