@@ -1,5 +1,4 @@
-Service Portfolio Manager
-========================
+# Service Portfolio Manager
 
 A web application built with Python, Streamlit, and SQLite to track and manage an organization's IT portfolio, including internal IT units, applications, infrastructure, and services. The primary goal is to provide a centralized inventory to help identify consolidation opportunities, track spending, and manage ownership.
 Features
@@ -31,20 +30,22 @@ Features
 
     "Quick Add" / Copy Feature: Quickly populate new entries by copying an existing item as a template.
 
-Prerequisites
+## Prerequisites
 
     Python 3.8+
 
     pip (Python package installer)
 
-Setup and Installation
+## Setup and Installation
 
-    Clone the repository:
+    ### Clone the repository:
 
     git clone <your-repository-url>
     cd <your-repository-folder>
 
-    Create and activate a virtual environment:
+    ### Create and activate a virtual environment:
+
+        ```
 
         Windows:
         python -m venv .venv
@@ -54,10 +55,12 @@ Setup and Installation
         python3 -m venv .venv
         source .venv/bin/activate
 
-    Install the required dependencies:
+        ```
+
+    ### Install the required dependencies:
     pip install -r requirements.txt
 
-Running the Application
+## Running the Application
 
     From your project's root directory, run the following command in your terminal:
 
@@ -65,7 +68,7 @@ Running the Application
 
     Your web browser will open a new tab with the application running. On the first visit, you will be prompted to log in with one of the authorized email addresses.
 
-File Structure
+## File Structure
 
     app.py: The main Streamlit application script containing all UI and backend logic.
     config.py: Contains the list of authorized emails for authentication.
@@ -75,6 +78,6 @@ File Structure
 
     README.md: This file.
 
-Deployment
+## Deployment
 
 The recommended method for deploying this application for sandboxing and user feedback is the Streamlit Community Cloud. It offers a free tier and integrates directly with public GitHub repositories.
