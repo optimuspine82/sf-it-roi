@@ -72,9 +72,9 @@ Simple Authentication: A straightforward, email-based authentication system to c
 
     app.py: The main Streamlit application script containing all UI and backend logic.
 
-    requirements.txt: A list of all Python packages required to run the application.
-    portfolio.db: The SQLite database file. This file is automatically created in the root directory the first time the application is run.
-    .gitignore: Specifies files and directories that should be ignored by Git (like .venv and portfolio.db).
+    - requirements.txt: A list of all Python packages required to run the application.
+    - portfolio.db: The SQLite database file. This file is automatically created in the root directory the first time the application is run.
+    - .gitignore: Specifies files and directories that should be ignored by Git (like .venv and portfolio.db).
 
     README.md: This file.
 
