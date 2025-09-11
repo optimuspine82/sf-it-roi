@@ -1,3 +1,4 @@
 - [x] Add ability to edit settings
 - [x] Can IT Units quick add items from another unit?
 - [ ] Create README file
+- [x] Remove clear selection button
