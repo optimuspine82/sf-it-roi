@@ -476,7 +476,6 @@ def render_lookup_manager(user_email, title, singular_name, table_name):
                 st.session_state.confirming_delete_lookup = {'table': table_name, 'id': item_id, 'name': item_name}
                 st.rerun()
 
-
 def main():
     st.set_page_config(layout="wide", page_title="Service Portfolio Manager")
     
@@ -582,21 +581,11 @@ def main():
             else:
                 st.subheader("Add a New Application")
                 
-                col1, col2 = st.columns([3, 1])
-                if 'app_to_copy_id' not in st.session_state:
-                    st.session_state.app_to_copy_id = None
-
-                app_to_copy_id = col1.selectbox("Or, copy an existing item to start...", options=[None] + list(app_options_all.keys()), format_func=lambda x: "---" if x is None else app_options_all.get(x), key="copy_app_select")
-                if col2.button("Clear Selection", key="clear_app_copy"):
-                    st.session_state.app_to_copy_id = None
-                    st.rerun()
+                app_to_copy_id = st.selectbox("Or, copy an existing item to start...", options=[None] + list(app_options_all.keys()), format_func=lambda x: "---" if x is None else app_options_all.get(x), key="copy_app_select")
                 
-                if app_to_copy_id:
-                    st.session_state.app_to_copy_id = app_to_copy_id
-
                 default_vals = {}
-                if st.session_state.app_to_copy_id:
-                    default_vals = get_application_details(st.session_state.app_to_copy_id)
+                if app_to_copy_id:
+                    default_vals = get_application_details(app_to_copy_id)
 
                 with st.form("add_app_form", clear_on_submit=True):
                     app_name = st.text_input("Application Name", value=default_vals.get('name', ''))
@@ -606,7 +595,6 @@ def main():
                     default_unit_idx = unit_keys.index(default_vals.get('it_unit_id')) if default_vals.get('it_unit_id') in unit_keys else 0
                     it_unit_id = st.selectbox("Managing IT Unit", options=unit_keys, format_func=it_unit_options_all.get, index=default_unit_idx)
                     
-                    vendor_options_all = dict(get_lookup_data('vendors')[['id', 'name']].values)
                     vendor_keys = [None] + list(vendor_options_all.keys())
                     default_vendor_idx = vendor_keys.index(default_vals.get('vendor_id')) if default_vals.get('vendor_id') in vendor_keys else 0
                     vendor_id = st.selectbox("Vendor (Optional, for external apps)", options=vendor_keys, format_func=lambda x: "None (Internal)" if x is None else vendor_options_all.get(x), index=default_vendor_idx)
@@ -629,7 +617,6 @@ def main():
                     
                     if st.form_submit_button("Save Application") and app_name:
                         add_application(user_email, it_unit_id, vendor_id, app_name, service_type_id, category_id, annual_cost, str(renewal_date), integrations, other_units, similar_apps, service_owner)
-                        st.session_state.app_to_copy_id = None
                         st.success(f"Added application: {app_name}")
                         st.rerun()
 
@@ -716,21 +703,11 @@ def main():
             else:
                 st.subheader("Add New Infrastructure")
                 
-                col1, col2 = st.columns([3, 1])
-                if 'infra_to_copy_id' not in st.session_state:
-                    st.session_state.infra_to_copy_id = None
-                
-                infra_to_copy_id = col1.selectbox("Or, copy an existing item to start...", options=[None] + list(infra_options_all.keys()), format_func=lambda x: "---" if x is None else infra_options_all.get(x), key="copy_infra_select")
-                if col2.button("Clear Selection", key="clear_infra_copy"):
-                    st.session_state.infra_to_copy_id = None
-                    st.rerun()
-
-                if infra_to_copy_id:
-                    st.session_state.infra_to_copy_id = infra_to_copy_id
+                infra_to_copy_id = st.selectbox("Or, copy an existing item to start...", options=[None] + list(infra_options_all.keys()), format_func=lambda x: "---" if x is None else infra_options_all.get(x), key="copy_infra_select")
                 
                 default_vals = {}
-                if st.session_state.infra_to_copy_id:
-                    default_vals = get_infrastructure_details(st.session_state.infra_to_copy_id)
+                if infra_to_copy_id:
+                    default_vals = get_infrastructure_details(infra_to_copy_id)
 
                 with st.form("add_infra_form", clear_on_submit=True):
                     name = st.text_input("Infrastructure Name / Hostname", value=default_vals.get('name', ''))
@@ -755,7 +732,6 @@ def main():
 
                     if st.form_submit_button("Save Infrastructure") and name:
                         add_infrastructure(user_email, name, it_unit_id, vendor_id, location, status, str(purchase_date), str(warranty_expiry), cost, notes)
-                        st.session_state.infra_to_copy_id = None
                         st.success(f"Added infrastructure: {name}")
                         st.rerun()
 
@@ -824,7 +800,7 @@ def main():
                 if del_col.form_submit_button("DELETE"):
                     st.session_state.confirming_delete_infra = infra_to_edit_id
                     st.rerun()
-
+    
     with service_tab:
         st.header("Manage Internal IT Services")
         st.info(TAB_INSTRUCTIONS["IT Services"])
@@ -835,21 +811,11 @@ def main():
         with st.expander("➕ Add New IT Service"):
             st.subheader("Add New IT Service")
 
-            col1, col2 = st.columns([3, 1])
-            if 'service_to_copy_id' not in st.session_state:
-                st.session_state.service_to_copy_id = None
-
-            service_to_copy_id = col1.selectbox("Or, copy an existing item to start...", options=[None] + list(it_service_options_all.keys()), format_func=lambda x: "---" if x is None else it_service_options_all.get(x), key="copy_service_select")
-            if col2.button("Clear Selection", key="clear_service_copy"):
-                st.session_state.service_to_copy_id = None
-                st.rerun()
-
-            if service_to_copy_id:
-                st.session_state.service_to_copy_id = service_to_copy_id
+            service_to_copy_id = st.selectbox("Or, copy an existing item to start...", options=[None] + list(it_service_options_all.keys()), format_func=lambda x: "---" if x is None else it_service_options_all.get(x), key="copy_service_select")
             
             default_vals = {}
-            if st.session_state.service_to_copy_id:
-                default_vals = get_it_service_details(st.session_state.service_to_copy_id)
+            if service_to_copy_id:
+                default_vals = get_it_service_details(service_to_copy_id)
 
             with st.form("add_it_service_form", clear_on_submit=True):
                 it_service_name = st.text_input("Service Name", value=default_vals.get('name', ''))
@@ -881,7 +847,6 @@ def main():
                 
                 if st.form_submit_button("Add Service") and it_service_name:
                     add_it_service(user_email, it_service_name, it_service_desc, it_unit_id, fte_count, dependencies, service_owner, status, sla_id, method_id, budget_allocation)
-                    st.session_state.service_to_copy_id = None
                     st.success(f"Added service: {it_service_name}")
                     st.rerun()
         
