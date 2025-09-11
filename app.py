@@ -235,6 +235,14 @@ def add_lookup_item(user_email, table_name, name):
         con.commit()
         log_change(user_email, "CREATE", f"Lookup: {table_name}", name)
 
+def update_lookup_item(user_email, table_name, item_id, new_name):
+    """Updates the name of a lookup item."""
+    with get_connection() as con:
+        cur = con.cursor()
+        cur.execute(f"UPDATE {table_name} SET name = ? WHERE id = ?", (new_name, item_id))
+        con.commit()
+        log_change(user_email, "UPDATE", f"Lookup: {table_name}", new_name)
+
 def delete_lookup_item(user_email, table_name, item_id, item_name):
     with get_connection() as con:
         cur = con.cursor()
@@ -370,11 +378,40 @@ def render_lookup_manager(user_email, title, singular_name, table_name):
     
     items = get_lookup_data(table_name)
     for _, row in items.iterrows():
-        l_col, r_col = st.columns([4, 1])
-        l_col.write(row['name'])
-        if r_col.button("🗑️", key=f"del_{table_name}_{row['id']}"):
-            st.session_state.confirming_delete_lookup = {'table': table_name, 'id': row['id'], 'name': row['name']}
-            st.rerun()
+        item_id = row['id']
+        item_name = row['name']
+        
+        is_editing = (
+            'editing_lookup_item' in st.session_state and
+            st.session_state.editing_lookup_item['table'] == table_name and
+            st.session_state.editing_lookup_item['id'] == item_id
+        )
+
+        if is_editing:
+            with st.form(key=f"edit_lookup_{table_name}_{item_id}"):
+                new_item_name = st.text_input("New Name", value=item_name)
+                
+                c1, c2 = st.columns(2)
+                if c1.form_submit_button("Save", type="primary"):
+                    update_lookup_item(user_email, table_name, item_id, new_item_name)
+                    st.session_state.pop('editing_lookup_item', None)
+                    st.success(f"Updated '{item_name}' to '{new_item_name}'.")
+                    st.rerun()
+                if c2.form_submit_button("Cancel"):
+                    st.session_state.pop('editing_lookup_item', None)
+                    st.rerun()
+        else:
+            l_col, m_col, r_col = st.columns([10, 1, 1])
+            l_col.write(item_name)
+            
+            if m_col.button("✏️", key=f"edit_lookup_{table_name}_{item_id}"):
+                st.session_state.editing_lookup_item = {'table': table_name, 'id': item_id}
+                st.rerun()
+                
+            if r_col.button("🗑️", key=f"del_lookup_{table_name}_{item_id}"):
+                st.session_state.confirming_delete_lookup = {'table': table_name, 'id': item_id, 'name': item_name}
+                st.rerun()
+
 
 def main():
     st.set_page_config(layout="wide", page_title="Service Portfolio Manager")
@@ -698,6 +735,12 @@ def main():
             app_duplicates = all_apps_df[all_apps_df.duplicated(subset=['name'], keep=False)].sort_values(by='name')
             if not app_duplicates.empty:
                 st.warning("Duplicate Applications Found Across IT Units")
+                
+                dup_app_counts = app_duplicates['name'].value_counts().reset_index()
+                dup_app_counts.columns = ['Application', 'Count']
+                fig_dup_apps = px.bar(dup_app_counts, x='Application', y='Count', title='Duplicated Application Counts')
+                st.plotly_chart(fig_dup_apps, use_container_width=True)
+                
                 st.dataframe(app_duplicates[['name', 'managing_it_unit', 'vendor', 'annual_cost']], width='stretch')
             else:
                 st.success("No duplicate application names found.")
