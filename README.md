@@ -68,16 +68,6 @@ Simple Authentication: A straightforward, email-based authentication system to c
 
     Your web browser will open a new tab with the application running. On the first visit, you will be prompted to log in with one of the authorized email addresses.
 
-## File Structure
-
-    app.py: The main Streamlit application script containing all UI and backend logic.
-
-    - requirements.txt: A list of all Python packages required to run the application.
-    - portfolio.db: The SQLite database file. This file is automatically created in the root directory the first time the application is run.
-    - .gitignore: Specifies files and directories that should be ignored by Git (like .venv and portfolio.db).
-
-    README.md: This file.
-
 ## Deployment
 
 The recommended method for deploying this application for sandboxing and user feedback is the Streamlit Community Cloud. It offers a free tier and integrates directly with public GitHub repositories.
