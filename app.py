@@ -2,7 +2,7 @@
 import streamlit as st
 from config import ALLOWED_EMAILS
 import database as db
-import ui
+import ui  # Your new UI module
 
 # --- AUTHENTICATION ---
 def check_authentication():
@@ -55,32 +55,33 @@ def main():
 
     tab_names = ["IT Units", "Applications", "Infrastructure", "IT Services", "Dashboard", "Settings", "Audit Log", "Bulk Import"]
     
+    # Create the tabs
     unit_tab, app_tab, infra_tab, service_tab, dashboard_tab, settings_tab, audit_tab, import_tab = st.tabs(tab_names)
 
     # Render the content for each tab by calling functions from the ui.py module
     with unit_tab:
-        ui.render_it_units_tab(user_email)
+        ui.render_it_units_tab(user_email, ui.TAB_INSTRUCTIONS)
         
     with app_tab:
-        ui.render_applications_tab(user_email)
+        ui.render_applications_tab(user_email, ui.TAB_INSTRUCTIONS)
 
     with infra_tab:
-        ui.render_infrastructure_tab(user_email)
+        ui.render_infrastructure_tab(user_email, ui.TAB_INSTRUCTIONS)
 
     with service_tab:
-        ui.render_services_tab(user_email)
+        ui.render_services_tab(user_email, ui.TAB_INSTRUCTIONS)
 
     with dashboard_tab:
-        ui.render_dashboard_tab()
+        ui.render_dashboard_tab(ui.TAB_INSTRUCTIONS)
 
     with settings_tab:
-        ui.render_settings_tab(user_email)
+        ui.render_settings_tab(user_email, ui.TAB_INSTRUCTIONS)
     
     with audit_tab:
-        ui.render_audit_tab()
+        ui.render_audit_tab(ui.TAB_INSTRUCTIONS)
 
     with import_tab:
-        ui.render_import_tab(user_email)
+        ui.render_import_tab(user_email, ui.TAB_INSTRUCTIONS)
 
 if __name__ == '__main__':
     main()
