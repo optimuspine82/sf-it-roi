@@ -675,35 +675,82 @@ def render_dashboard_tab():
 def render_settings_tab(user_email):
     st.header("Manage Lookups")
     st.info(TAB_INSTRUCTIONS["Settings"])
+    st.caption("Expand a section below to view and edit lookup options.")
 
-    if 'confirming_delete_lookup' in st.session_state and st.session_state.confirming_delete_lookup:
-        item = st.session_state.confirming_delete_lookup
-        st.warning(f"**Are you sure you want to delete the lookup item '{item['name']}'?**")
-        c1, c2 = st.columns(2)
-        if c1.button("Yes, delete it", key="confirm_del_lookup"):
-            db.delete_lookup_item(user_email, item['table'], item['id'], item['name'])
-            st.session_state.pop('confirming_delete_lookup', None)
-            st.success(f"Deleted item: {item['name']}")
-            st.rerun()
-        if c2.button("Cancel", key="cancel_del_lookup"):
-            st.session_state.pop('confirming_delete_lookup', None)
-            st.rerun()
-    
-    ven_col, type_col = st.columns(2)
-    with ven_col:
-        render_lookup_manager(user_email, "Vendors", "Vendor", "vendors")
-    with type_col:
-        render_lookup_manager(user_email, "Application Types", "Application Type", "service_types")
+    lookup_tables = {
+        "Vendors": "vendors",
+        "Application Types": "service_types",
+        "Categories": "categories",
+        "SLA Levels": "sla_levels",
+        "Service Methods": "service_methods"
+    }
 
-    st.divider()
+    for title, table_name in lookup_tables.items():
+        with st.expander(f"⚙️ {title}", expanded=False):
+            # Add new item
+            with st.form(f"add_{table_name}_form", clear_on_submit=True):
+                new_name = st.text_input(f"New {title[:-1]} Name", key=f"new_{table_name}")
+                if st.form_submit_button(f"Add {title[:-1]}"):
+                    if new_name:
+                        db.add_lookup_item(user_email, table_name, new_name)
+                        st.rerun()
 
-    cat_col, sla_col, method_col = st.columns(3)
-    with cat_col:
-        render_lookup_manager(user_email, "Categories", "Category", "categories")
-    with sla_col:
-        render_lookup_manager(user_email, "SLA Levels", "SLA Level", "sla_levels")
-    with method_col:
-        render_lookup_manager(user_email, "Service Methods", "Service Method", "service_methods")
+            # Show current items as badges with edit/delete options
+            items = db.get_lookup_data(table_name)
+            if items.empty:
+                st.info(f"No {title} defined yet.")
+            else:
+                st.write("Current options:")
+                for _, row in items.iterrows():
+                    item_id, item_name = row['id'], row['name']
+
+                    # Badge style row
+                    badge_col, edit_col, delete_col = st.columns([8, 1, 1])
+                    badge_col.markdown(f"<div style='padding:6px 12px; background:#f0f2f6; "
+                                       f"border-radius:12px; display:inline-block;'>{item_name}</div>",
+                                       unsafe_allow_html=True)
+
+                    if edit_col.button("✏️", key=f"edit_{table_name}_{item_id}"):
+                        st.session_state.editing_lookup_item = {'table': table_name, 'id': item_id}
+                        st.rerun()
+                    if delete_col.button("🗑️", key=f"del_{table_name}_{item_id}"):
+                        st.session_state.confirming_delete_lookup = {'table': table_name, 'id': item_id, 'name': item_name}
+                        st.rerun()
+
+                # Inline editor when an item is being edited
+                if ('editing_lookup_item' in st.session_state and
+                        st.session_state.editing_lookup_item['table'] == table_name):
+                    edit_id = st.session_state.editing_lookup_item['id']
+                    edit_item = items[items['id'] == edit_id].iloc[0]
+
+                    with st.form(f"edit_lookup_{table_name}_{edit_id}"):
+                        new_item_name = st.text_input("New Name", value=edit_item['name'])
+                        c1, c2 = st.columns(2)
+                        if c1.form_submit_button("Save", type="primary"):
+                            db.update_lookup_item(user_email, table_name, edit_id, new_item_name)
+                            st.session_state.pop('editing_lookup_item', None)
+                            st.success(f"Updated '{edit_item['name']}' to '{new_item_name}'.")
+                            st.rerun()
+                        if c2.form_submit_button("Cancel"):
+                            st.session_state.pop('editing_lookup_item', None)
+                            st.rerun()
+
+                # Delete confirmation
+                if 'confirming_delete_lookup' in st.session_state:
+                    confirm = st.session_state.confirming_delete_lookup
+                    if confirm['table'] == table_name:
+                        st.warning(f"Are you sure you want to delete '{confirm['name']}'?")
+                        c1, c2 = st.columns(2)
+                        if c1.button("Yes, delete it", key=f"confirm_delete_{table_name}_{confirm['id']}"):
+                            db.delete_lookup_item(user_email, confirm['table'], confirm['id'], confirm['name'])
+                            st.session_state.pop('confirming_delete_lookup', None)
+                            st.success(f"Deleted {confirm['name']}")
+                            st.rerun()
+                        if c2.button("Cancel", key=f"cancel_delete_{table_name}_{confirm['id']}"):
+                            st.session_state.pop('confirming_delete_lookup', None)
+                            st.rerun()
+
+
 
 def render_audit_tab():
     st.header("Audit Log")
@@ -832,7 +879,7 @@ def process_import(import_type, df, user_email):
                     vendor_id = vendors_map.get(row.get('vendor_name'))
                     if not vendor_id: raise ValueError(f"Vendor '{row['vendor_name']}' not found.")
                     
-                    type_id = types_map.get(row.get('type_name'))
+                    type_id = types_map.get(row.get('type_name')) if pd.notna(row.get('type_name')) else None
                     if row.get('type_name') and not type_id: raise ValueError(f"Type '{row['type_name']}' not found.")
                     
                     category_id = categories_map.get(row['category_name'])
@@ -840,8 +887,7 @@ def process_import(import_type, df, user_email):
 
                     cost_val = row.get('annual_cost')
                     db.add_application(
-                        user_email, name=row['name'], it_unit_id=it_unit_id, vendor_id=vendor_id, 
-                        category_id=category_id, service_type_id=type_id, 
+                        user_email, row['name'], it_unit_id, vendor_id, category_id, type_id, 
                         annual_cost=float(cost_val) if pd.notna(cost_val) else 0.0,
                         renewal_date=str(pd.to_datetime(row['renewal_date']).date()) if pd.notna(row.get('renewal_date')) else None,
                         integrations=row.get('integrations'), description=row.get('description'),

@@ -6,9 +6,9 @@ import datetime
 
 DB_FILE = "portfolio.db"
 
-# --- HELPER: Rebuild Tables ---
+# --- HELPER: Rebuild Applications Table ---
 def rebuild_applications_table(con):
-    """Safely rebuilds the applications table."""
+    """Safely rebuilds the applications table to remove duplicate description/other_units columns."""
     cur = con.cursor()
     cur.execute("ALTER TABLE applications RENAME TO applications_old")
     cur.execute("""
@@ -96,7 +96,7 @@ def init_db():
         for col, col_type in required_app_columns.items():
             if col not in app_columns_final:
                 cur.execute(f"ALTER TABLE applications ADD COLUMN {col} {col_type}")
-
+        
         # --- IT Services Table ---
         cur.execute("CREATE TABLE IF NOT EXISTS it_services (id INTEGER PRIMARY KEY, name TEXT NOT NULL, description TEXT)")
         cur.execute("PRAGMA index_list('it_services')")
@@ -121,8 +121,6 @@ def init_db():
         if 'notes' in infra_columns and 'description' not in infra_columns:
             cur.execute("ALTER TABLE infrastructure RENAME COLUMN notes TO description")
         
-        # NOTE: purchase_date and warranty_expiry are intentionally left out of the required columns
-        # as they are being removed. No new migration is needed; they will just become unused.
         cur.execute("PRAGMA table_info(infrastructure)")
         infra_columns_final = [info[1] for info in cur.fetchall()]
         required_infra_columns = {
