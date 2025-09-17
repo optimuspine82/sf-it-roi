@@ -191,6 +191,11 @@ def render_applications_tab(user_email):
                 default_cat_idx = category_keys.index(default_vals.get('category_id')) if default_vals.get('category_id') in category_keys else 0
                 category_id = st.selectbox("Category*", options=category_keys, format_func=category_options_all.get, index=default_cat_idx)
                 
+                status_options = ["Active", "In Development", "Sunsetting", "Retired"]
+                default_status = default_vals.get('status', 'Active')
+                default_status_idx = status_options.index(default_status) if default_status in status_options else 0
+                status = st.selectbox("Status", options=status_options, index=default_status_idx)
+
                 service_type_options_all = dict(db.get_lookup_data('service_types')[['id', 'name']].values)
                 type_keys = list(service_type_options_all.keys())
                 default_type_idx = type_keys.index(default_vals.get('service_type_id')) if default_vals.get('service_type_id') in type_keys else 0
@@ -207,7 +212,7 @@ def render_applications_tab(user_email):
                     if not all([app_name, it_unit_id, vendor_id, category_id]):
                         st.warning("Please fill in all required fields.")
                     else:
-                        result = db.add_application(user_email, app_name, it_unit_id, vendor_id, category_id, service_type_id, annual_cost, str(renewal_date) if renewal_date else None, integrations, description, similar_apps, service_owner)
+                        result = db.add_application(user_email, app_name, it_unit_id, vendor_id, category_id, service_type_id, annual_cost, str(renewal_date) if renewal_date else None, integrations, description, similar_apps, service_owner, status)
                         if isinstance(result, str):
                             st.warning(result)
                         else:
@@ -268,6 +273,11 @@ def render_applications_tab(user_email):
             default_cat_idx = list(category_options_all.keys()).index(app_details['category_id']) if app_details.get('category_id') in category_options_all else 0
             edit_category_id = st.selectbox("Category*", options=list(category_options_all.keys()), format_func=category_options_all.get, index=default_cat_idx)
             
+            status_options = ["Active", "In Development", "Sunsetting", "Retired"]
+            edit_default_status = app_details.get('status', 'Active')
+            edit_status_idx = status_options.index(edit_default_status) if edit_default_status in status_options else 0
+            edit_status = st.selectbox("Status", options=status_options, index=edit_status_idx)
+
             type_options_all = dict(db.get_lookup_data('service_types')[['id', 'name']].values)
             default_type_idx = list(type_options_all.keys()).index(app_details.get('service_type_id')) if app_details.get('service_type_id') in type_options_all else 0
             edit_type_id = st.selectbox("Type", options=list(type_options_all.keys()), format_func=type_options_all.get, index=default_type_idx)
@@ -284,7 +294,7 @@ def render_applications_tab(user_email):
                 if not all([edit_name, edit_it_unit_id, edit_vendor_id, edit_category_id]):
                     st.warning("Please fill in all required fields.")
                 else:
-                    result = db.update_application(user_email, app_to_edit_id, edit_name, edit_it_unit_id, edit_vendor_id, edit_category_id, edit_type_id, edit_annual_cost, str(edit_renewal) if edit_renewal else None, edit_integrations, edit_description, edit_similar_apps, edit_service_owner)
+                    result = db.update_application(user_email, app_to_edit_id, edit_name, edit_it_unit_id, edit_vendor_id, edit_category_id, edit_type_id, edit_annual_cost, str(edit_renewal) if edit_renewal else None, edit_integrations, edit_description, edit_similar_apps, edit_service_owner, edit_status)
                     if isinstance(result, str):
                         st.warning(result)
                     else:
@@ -337,8 +347,6 @@ def render_infrastructure_tab(user_email):
                 default_status_idx = status_options.index(default_vals.get('status')) if default_vals.get('status') in status_options else 0
                 status = st.selectbox("Status", options=status_options, index=default_status_idx)
                 
-                purchase_date = st.date_input("Purchase Date", value=pd.to_datetime(default_vals.get('purchase_date')) if pd.notna(default_vals.get('purchase_date')) else None)
-                warranty_expiry = st.date_input("Warranty Expiry Date", value=pd.to_datetime(default_vals.get('warranty_expiry')) if pd.notna(default_vals.get('warranty_expiry')) else None)
                 cost = st.number_input("Annual Maintenance Cost ($)", min_value=0.0, format="%.2f", value=float(default_vals.get('annual_maintenance_cost', 0.0)))
                 description = st.text_area("Description", value=default_vals.get('description', ''))
 
@@ -346,7 +354,7 @@ def render_infrastructure_tab(user_email):
                     if not name or not it_unit_id:
                         st.warning("Please fill in all required fields.")
                     else:
-                        result = db.add_infrastructure(user_email, name, it_unit_id, vendor_id, location, status, str(purchase_date) if purchase_date else None, str(warranty_expiry) if warranty_expiry else None, cost, description)
+                        result = db.add_infrastructure(user_email, name, it_unit_id, vendor_id, location, status, cost, description)
                         if isinstance(result, str):
                             st.warning(result)
                         else:
@@ -404,8 +412,6 @@ def render_infrastructure_tab(user_email):
             default_status_idx = status_options.index(infra_details.get('status')) if infra_details.get('status') in status_options else 0
             edit_status = st.selectbox("Status", options=status_options, index=default_status_idx)
             
-            edit_purchase_date = st.date_input("Purchase Date", value=pd.to_datetime(infra_details['purchase_date']) if pd.notna(infra_details['purchase_date']) else None)
-            edit_warranty_expiry = st.date_input("Warranty Expiry Date", value=pd.to_datetime(infra_details['warranty_expiry']) if pd.notna(infra_details['warranty_expiry']) else None)
             edit_cost = st.number_input("Annual Maintenance Cost ($)", min_value=0.0, format="%.2f", value=float(infra_details.get('annual_maintenance_cost') or 0.0))
             edit_description = st.text_area("Description", value=infra_details.get('description') or '')
 
@@ -414,7 +420,7 @@ def render_infrastructure_tab(user_email):
                 if not edit_name or not edit_it_unit_id:
                     st.warning("Please fill in all required fields.")
                 else:
-                    result = db.update_infrastructure(user_email, infra_to_edit_id, edit_name, edit_it_unit_id, edit_vendor_id, edit_location, edit_status, str(edit_purchase_date) if edit_purchase_date else None, str(edit_warranty_expiry) if edit_warranty_expiry else None, edit_cost, edit_description)
+                    result = db.update_infrastructure(user_email, infra_to_edit_id, edit_name, edit_it_unit_id, edit_vendor_id, edit_location, edit_status, edit_cost, edit_description)
                     if isinstance(result, str):
                         st.warning(result)
                     else:
@@ -485,7 +491,7 @@ def render_services_tab(user_email):
                             st.warning(result)
                         else:
                             st.rerun()
-                            
+    
     st.divider()
     st.subheader("Filter and Search IT Services")
     fscol1, fscol2, fscol3, fscol4 = st.columns(4)
@@ -554,7 +560,7 @@ def render_services_tab(user_email):
                 if not edit_it_name or not edit_it_unit_id:
                     st.warning("Please fill in all required fields.")
                 else:
-                    result = db.update_it_service(user_email, it_service_to_edit_id, edit_it_name, edit_it_desc, edit_it_unit_id, edit_fte_count, edit_dependencies, edit_service_owner, edit_status, edit_sla_id, edit_method_id, edit_budget)
+                    result = db.update_it_service(user_email, it_service_to_edit_id, edit_it_name, edit_it_unit_id, edit_it_desc, edit_fte_count, edit_dependencies, edit_service_owner, edit_status, edit_sla_id, edit_method_id, edit_budget)
                     if isinstance(result, str):
                         st.warning(result)
                     else:
@@ -745,8 +751,8 @@ def render_import_tab(user_email):
     
     template_cols = {
         "IT Units": ["name", "contact_person", "contact_email", "total_fte", "budget_amount", "notes"],
-        "Applications": ["name", "service_owner", "managing_it_unit_name", "vendor_name", "type_name", "category_name", "annual_cost", "renewal_date", "integrations", "description", "similar_applications"],
-        "Infrastructure": ["name", "managing_it_unit_name", "vendor_name", "location", "status", "purchase_date", "warranty_expiry", "annual_maintenance_cost", "description"],
+        "Applications": ["name", "status", "service_owner", "managing_it_unit_name", "vendor_name", "type_name", "category_name", "annual_cost", "renewal_date", "integrations", "description", "similar_applications"],
+        "Infrastructure": ["name", "managing_it_unit_name", "vendor_name", "location", "status", "annual_maintenance_cost", "description"],
         "IT Services": ["name", "providing_it_unit_name", "status", "service_owner", "fte_count", "budget_allocation", "sla_level_name", "service_method_name", "description", "dependencies"]
     }
 
@@ -826,19 +832,21 @@ def process_import(import_type, df, user_email):
                     vendor_id = vendors_map.get(row.get('vendor_name'))
                     if not vendor_id: raise ValueError(f"Vendor '{row['vendor_name']}' not found.")
                     
-                    type_id = types_map.get(row['type_name'])
-                    if not type_id: raise ValueError(f"Type '{row['type_name']}' not found.")
+                    type_id = types_map.get(row.get('type_name'))
+                    if row.get('type_name') and not type_id: raise ValueError(f"Type '{row['type_name']}' not found.")
                     
                     category_id = categories_map.get(row['category_name'])
                     if not category_id: raise ValueError(f"Category '{row['category_name']}' not found.")
 
                     cost_val = row.get('annual_cost')
                     db.add_application(
-                        user_email, row['name'], it_unit_id, vendor_id, category_id, type_id, 
+                        user_email, name=row['name'], it_unit_id=it_unit_id, vendor_id=vendor_id, 
+                        category_id=category_id, service_type_id=type_id, 
                         annual_cost=float(cost_val) if pd.notna(cost_val) else 0.0,
                         renewal_date=str(pd.to_datetime(row['renewal_date']).date()) if pd.notna(row.get('renewal_date')) else None,
                         integrations=row.get('integrations'), description=row.get('description'),
-                        similar_apps=row.get('similar_applications'), service_owner=row.get('service_owner'), bulk=True
+                        similar_apps=row.get('similar_applications'), service_owner=row.get('service_owner'), 
+                        status=row.get('status'), bulk=True
                     )
 
                 elif import_type == "Infrastructure":
@@ -851,8 +859,6 @@ def process_import(import_type, df, user_email):
                     db.add_infrastructure(
                         user_email, name=row['name'], it_unit_id=it_unit_id, vendor_id=vendor_id,
                         location=row.get('location'), status=row.get('status'),
-                        purchase_date=str(pd.to_datetime(row['purchase_date']).date()) if pd.notna(row.get('purchase_date')) else None,
-                        warranty_expiry=str(pd.to_datetime(row['warranty_expiry']).date()) if pd.notna(row.get('warranty_expiry')) else None,
                         cost=float(cost_val) if pd.notna(cost_val) else 0.0,
                         description=row.get('description'), bulk=True
                     )

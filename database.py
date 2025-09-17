@@ -8,24 +8,25 @@ DB_FILE = "portfolio.db"
 
 # --- HELPER: Rebuild Tables ---
 def rebuild_applications_table(con):
-    """Safely rebuilds the applications table to remove duplicate description/other_units columns."""
+    """Safely rebuilds the applications table."""
     cur = con.cursor()
     cur.execute("ALTER TABLE applications RENAME TO applications_old")
     cur.execute("""
         CREATE TABLE applications (
             id INTEGER PRIMARY KEY, name TEXT NOT NULL, it_unit_id INTEGER, vendor_id INTEGER,
             renewal_date TEXT, annual_cost REAL, service_type_id INTEGER, category_id INTEGER,
-            integrations TEXT, description TEXT, similar_applications TEXT, service_owner TEXT
+            integrations TEXT, description TEXT, similar_applications TEXT, service_owner TEXT,
+            status TEXT
         )
     """)
     cur.execute("""
         INSERT INTO applications (id, name, it_unit_id, vendor_id, renewal_date, annual_cost,
                                   service_type_id, category_id, integrations, description,
-                                  similar_applications, service_owner)
+                                  similar_applications, service_owner, status)
         SELECT id, name, it_unit_id, vendor_id, renewal_date, annual_cost,
                service_type_id, category_id, integrations,
                COALESCE(description, other_units),
-               similar_applications, service_owner
+               similar_applications, service_owner, status
         FROM applications_old
     """)
     cur.execute("DROP TABLE applications_old")
@@ -90,7 +91,7 @@ def init_db():
         required_app_columns = {
             "it_unit_id": "INTEGER", "vendor_id": "INTEGER", "renewal_date": "TEXT", "annual_cost": "REAL", 
             "service_type_id": "INTEGER", "category_id": "INTEGER", "integrations": "TEXT", 
-            "description": "TEXT", "similar_applications": "TEXT", "service_owner": "TEXT"
+            "description": "TEXT", "similar_applications": "TEXT", "service_owner": "TEXT", "status": "TEXT"
         }
         for col, col_type in required_app_columns.items():
             if col not in app_columns_final:
@@ -120,11 +121,13 @@ def init_db():
         if 'notes' in infra_columns and 'description' not in infra_columns:
             cur.execute("ALTER TABLE infrastructure RENAME COLUMN notes TO description")
         
+        # NOTE: purchase_date and warranty_expiry are intentionally left out of the required columns
+        # as they are being removed. No new migration is needed; they will just become unused.
         cur.execute("PRAGMA table_info(infrastructure)")
         infra_columns_final = [info[1] for info in cur.fetchall()]
         required_infra_columns = {
             "it_unit_id": "INTEGER", "vendor_id": "INTEGER", "location": "TEXT", "status": "TEXT", 
-            "purchase_date": "TEXT", "warranty_expiry": "TEXT", "annual_maintenance_cost": "REAL", "description": "TEXT"
+            "annual_maintenance_cost": "REAL", "description": "TEXT"
         }
         for col, col_type in required_infra_columns.items():
             if col not in infra_columns_final:
@@ -236,7 +239,7 @@ def get_applications():
         query = """
             SELECT a.id, a.name, iu.name as managing_it_unit, v.name as vendor, 
                    st.name as type, c.name as category, a.annual_cost, a.renewal_date, 
-                   a.similar_applications, a.service_owner
+                   a.similar_applications, a.service_owner, a.status
             FROM applications a
             LEFT JOIN it_units iu ON a.it_unit_id = iu.id
             LEFT JOIN vendors v ON a.vendor_id = v.id
@@ -254,28 +257,28 @@ def get_application_details(app_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_application(user_email, name, it_unit_id, vendor_id, category_id, service_type_id, annual_cost, renewal_date, integrations, description, similar_apps, service_owner, bulk=False):
+def add_application(user_email, name, it_unit_id, vendor_id, category_id, service_type_id, annual_cost, renewal_date, integrations, description, similar_apps, service_owner, status, bulk=False):
     if not all([name, it_unit_id, vendor_id, category_id]):
         return "Application Name, Managing IT Unit, Vendor, and Category are required."
     with get_connection() as con:
         con.execute(
-            """INSERT INTO applications (name, it_unit_id, vendor_id, category_id, service_type_id, annual_cost, renewal_date, integrations, description, similar_applications, service_owner)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (name, it_unit_id, vendor_id, category_id, service_type_id, annual_cost, renewal_date, integrations, description, similar_apps, service_owner)
+            """INSERT INTO applications (name, it_unit_id, vendor_id, category_id, service_type_id, annual_cost, renewal_date, integrations, description, similar_applications, service_owner, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (name, it_unit_id, vendor_id, category_id, service_type_id, annual_cost, renewal_date, integrations, description, similar_apps, service_owner, status)
         )
         con.commit()
         log_change(user_email, "CREATE", "Application", name, details="Bulk Import" if bulk else "")
         if not bulk: st.success(f"Added application: {name}")
         return True
 
-def update_application(user_email, app_id, name, it_unit_id, vendor_id, category_id, service_type_id, annual_cost, renewal_date, integrations, description, similar_apps, service_owner):
+def update_application(user_email, app_id, name, it_unit_id, vendor_id, category_id, service_type_id, annual_cost, renewal_date, integrations, description, similar_apps, service_owner, status):
     if not all([name, it_unit_id, vendor_id, category_id]):
         return "Application Name, Managing IT Unit, Vendor, and Category cannot be empty."
     with get_connection() as con:
         con.execute(
             """UPDATE applications SET name=?, it_unit_id=?, vendor_id=?, category_id=?, service_type_id=?, annual_cost=?, 
-               renewal_date=?, integrations=?, description=?, similar_applications=?, service_owner=? WHERE id=?""",
-            (name, it_unit_id, vendor_id, category_id, service_type_id, annual_cost, renewal_date, integrations, description, similar_apps, service_owner, app_id)
+               renewal_date=?, integrations=?, description=?, similar_applications=?, service_owner=?, status=? WHERE id=?""",
+            (name, it_unit_id, vendor_id, category_id, service_type_id, annual_cost, renewal_date, integrations, description, similar_apps, service_owner, status, app_id)
         )
         con.commit()
         log_change(user_email, "UPDATE", "Application", name)
@@ -348,7 +351,7 @@ def get_infrastructure():
     with get_connection() as con:
         query = """
             SELECT i.id, i.name, iu.name as managing_it_unit, v.name as vendor, i.location, 
-                   i.status, i.purchase_date, i.warranty_expiry, i.annual_maintenance_cost
+                   i.status, i.annual_maintenance_cost
             FROM infrastructure i
             LEFT JOIN it_units iu ON i.it_unit_id = iu.id
             LEFT JOIN vendors v ON i.vendor_id = v.id
@@ -364,28 +367,28 @@ def get_infrastructure_details(infra_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def add_infrastructure(user_email, name, it_unit_id, vendor_id=None, location="", status="", purchase_date="", warranty_expiry="", cost=0.0, description="", bulk=False):
+def add_infrastructure(user_email, name, it_unit_id, vendor_id=None, location="", status="", cost=0.0, description="", bulk=False):
     if not name or not it_unit_id:
         return "Infrastructure Name and Managing IT Unit are required."
     with get_connection() as con:
         con.execute(
-            """INSERT INTO infrastructure (name, it_unit_id, vendor_id, location, status, purchase_date, warranty_expiry, annual_maintenance_cost, description)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (name, it_unit_id, vendor_id, location, status, purchase_date, warranty_expiry, cost, description)
+            """INSERT INTO infrastructure (name, it_unit_id, vendor_id, location, status, annual_maintenance_cost, description)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (name, it_unit_id, vendor_id, location, status, cost, description)
         )
         con.commit()
         log_change(user_email, "CREATE", "Infrastructure", name, details="Bulk Import" if bulk else "")
         if not bulk: st.success(f"Added infrastructure: {name}")
         return True
 
-def update_infrastructure(user_email, infra_id, name, it_unit_id, vendor_id, location, status, purchase_date, warranty_expiry, cost, description):
+def update_infrastructure(user_email, infra_id, name, it_unit_id, vendor_id, location, status, cost, description):
     if not name or not it_unit_id:
         return "Infrastructure Name and Managing IT Unit cannot be empty."
     with get_connection() as con:
         con.execute(
-            """UPDATE infrastructure SET name=?, it_unit_id=?, vendor_id=?, location=?, status=?, purchase_date=?, 
-               warranty_expiry=?, annual_maintenance_cost=?, description=? WHERE id = ?""",
-            (name, it_unit_id, vendor_id, location, status, purchase_date, warranty_expiry, cost, description, infra_id)
+            """UPDATE infrastructure SET name=?, it_unit_id=?, vendor_id=?, location=?, status=?, 
+               annual_maintenance_cost=?, description=? WHERE id = ?""",
+            (name, it_unit_id, vendor_id, location, status, cost, description, infra_id)
         )
         con.commit()
         log_change(user_email, "UPDATE", "Infrastructure", name)
