@@ -13,5 +13,6 @@ ALLOWED_EMAILS = {
     "brian.cass@unc.edu",
     "cstory@email.unc.edu",
     "brian_nussbaum@unc.edu",
-    "tim_shearer@unc.edu"
+    "tim_shearer@unc.edu",
+    "alpi@unc.edu"
 }
