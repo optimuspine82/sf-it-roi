@@ -161,7 +161,10 @@ def log_change(user_email, action, item_type, item_name, details=""):
 # --- IT UNIT FUNCTIONS ---
 def get_it_units():
     with get_connection() as con:
-        return pd.read_sql_query("SELECT id, name FROM it_units ORDER BY name", con)
+        return pd.read_sql_query(
+            "SELECT id, name, contact_person, contact_email FROM it_units ORDER BY name", 
+            con
+        )
 
 def get_it_unit_details(unit_id):
     with get_connection() as con:

@@ -27,6 +27,41 @@ def convert_df_to_csv(df):
 def render_it_units_tab(user_email):
     st.header("Manage IT Units")
     st.info(TAB_INSTRUCTIONS["IT Units"])
+
+    # (form for adding/editing omitted for clarity)
+
+    st.divider()
+
+    # Always get fresh IT Units
+    it_units_df_all = db.get_it_units()
+
+    # Allow searching
+    search_unit = st.text_input("Search IT Units by Name")
+    filtered_units_df = it_units_df_all
+    if search_unit:
+        filtered_units_df = it_units_df_all[
+            it_units_df_all['name'].str.contains(search_unit, case=False, na=False)
+        ]
+
+    st.subheader("All IT Units")
+
+    # Rename columns for clarity
+    display_df = filtered_units_df.rename(columns={
+        "name": "IT Unit",
+        "contact_person": "Contact",
+        "contact_email": "Email"
+    })
+
+    st.dataframe(display_df, width='stretch')
+
+    # Export same table
+    csv_units = convert_df_to_csv(display_df)
+    st.download_button(
+        label="Download data as CSV",
+        data=csv_units,
+        file_name='it_units_export.csv',
+        mime='text/csv'
+    )
     
     with st.expander("➕ Add New IT Unit"):
         with st.form("add_unit_form", clear_on_submit=True):
@@ -50,11 +85,6 @@ def render_it_units_tab(user_email):
     
     st.divider()
     it_units_df_all = db.get_it_units()
-    search_unit = st.text_input("Search IT Units by Name")
-    
-    filtered_units_df = it_units_df_all
-    if search_unit:
-        filtered_units_df = it_units_df_all[it_units_df_all['name'].str.contains(search_unit, case=False, na=False)]
 
     st.subheader("Edit or Delete an IT Unit")
     
@@ -98,11 +128,6 @@ def render_it_units_tab(user_email):
             if del_col.form_submit_button("DELETE"):
                 st.session_state.confirming_delete_unit = unit_to_edit_id
                 st.rerun()
-
-    st.subheader("All IT Units")
-    st.dataframe(filtered_units_df, width='stretch')
-    csv_units = convert_df_to_csv(filtered_units_df)
-    st.download_button(label="Download data as CSV", data=csv_units, file_name='it_units_export.csv', mime='text/csv')
 
 def render_applications_tab(user_email):
     st.header("Manage Applications")
