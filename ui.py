@@ -23,44 +23,6 @@ def convert_df_to_csv(df):
     """Helper function to convert a DataFrame to a CSV string."""
     return df.to_csv(index=False).encode('utf-8')
 
-def render_lookup_manager(user_email, title, singular_name, table_name):
-    st.write(f"#### {title}")
-    with st.form(f"add_{table_name}_form", clear_on_submit=True):
-        new_name = st.text_input(f"New {singular_name} Name")
-        if st.form_submit_button(f"Add {singular_name}"):
-            if new_name:
-                db.add_lookup_item(user_email, table_name, new_name)
-                st.rerun()
-    
-    items = db.get_lookup_data(table_name)
-    for _, row in items.iterrows():
-        item_id, item_name = row['id'], row['name']
-        is_editing = ('editing_lookup_item' in st.session_state and
-                      st.session_state.editing_lookup_item['table'] == table_name and
-                      st.session_state.editing_lookup_item['id'] == item_id)
-
-        if is_editing:
-            with st.form(key=f"edit_lookup_{table_name}_{item_id}"):
-                new_item_name = st.text_input("New Name", value=item_name)
-                c1, c2 = st.columns(2)
-                if c1.form_submit_button("Save", type="primary"):
-                    db.update_lookup_item(user_email, table_name, item_id, new_item_name)
-                    st.session_state.pop('editing_lookup_item', None)
-                    st.success(f"Updated '{item_name}' to '{new_item_name}'.")
-                    st.rerun()
-                if c2.form_submit_button("Cancel"):
-                    st.session_state.pop('editing_lookup_item', None)
-                    st.rerun()
-        else:
-            l_col, m_col, r_col = st.columns([10, 1, 1])
-            l_col.write(item_name)
-            if m_col.button("✏️", key=f"edit_lookup_{table_name}_{item_id}"):
-                st.session_state.editing_lookup_item = {'table': table_name, 'id': item_id}
-                st.rerun()
-            if r_col.button("🗑️", key=f"del_lookup_{table_name}_{item_id}"):
-                st.session_state.confirming_delete_lookup = {'table': table_name, 'id': item_id, 'name': item_name}
-                st.rerun()
-
 # --- TAB RENDERING FUNCTIONS ---
 def render_it_units_tab(user_email):
     st.header("Manage IT Units")
@@ -678,22 +640,22 @@ def render_settings_tab(user_email):
     st.caption("Expand a section below to view and edit lookup options.")
 
     lookup_tables = {
-        "Vendors": "vendors",
-        "Application Types": "service_types",
-        "Categories": "categories",
-        "SLA Levels": "sla_levels",
-        "Service Methods": "service_methods"
-    }
+    "Vendors": ("vendors", "Vendor"),
+    "Application Types": ("service_types", "Application Type"),
+    "Categories": ("categories", "Category"),
+    "SLA Levels": ("sla_levels", "SLA Level"),
+    "Service Methods": ("service_methods", "Service Method")
+}
 
-    for title, table_name in lookup_tables.items():
+    for title, (table_name, singular) in lookup_tables.items():
         with st.expander(f"⚙️ {title}", expanded=False):
-            # Add new item
             with st.form(f"add_{table_name}_form", clear_on_submit=True):
-                new_name = st.text_input(f"New {title[:-1]} Name", key=f"new_{table_name}")
-                if st.form_submit_button(f"Add {title[:-1]}"):
+                new_name = st.text_input(f"New {singular} Name", key=f"new_{table_name}")
+                if st.form_submit_button(f"Add {singular}"):
                     if new_name:
                         db.add_lookup_item(user_email, table_name, new_name)
                         st.rerun()
+
 
             # Show current items as badges with edit/delete options
             items = db.get_lookup_data(table_name)
@@ -749,8 +711,6 @@ def render_settings_tab(user_email):
                         if c2.button("Cancel", key=f"cancel_delete_{table_name}_{confirm['id']}"):
                             st.session_state.pop('confirming_delete_lookup', None)
                             st.rerun()
-
-
 
 def render_audit_tab():
     st.header("Audit Log")
