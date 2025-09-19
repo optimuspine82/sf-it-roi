@@ -2,5 +2,6 @@
 - [x] Can IT Units quick add items from another unit?
 - [ ] Create README file
 - [x] Remove clear selection button
-- [ ] Remove unnecessary fields from forms
-- [ ] Require some fields like name and unit
+- [x] Remove unnecessary fields from forms
+- [x] Require some fields like name and unit
+- [ ] For bulk import, add instructions for what fields are required for each form
