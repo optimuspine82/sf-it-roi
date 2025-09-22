@@ -131,6 +131,137 @@ def render_it_units_tab(user_email):
 
 # Replace the entire render_applications_tab function in ui.py with this
 
+# ui.py
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import datetime
+import database as db
+
+# --- UI CONSTANTS ---
+TAB_INSTRUCTIONS = {
+    "IT Units": "Manage the internal IT teams or departments responsible for applications and services. You can add new units, edit their contact and budget information, or delete them here.",
+    "Applications": "Track all software applications, whether they are developed internally or purchased from an external vendor. Link each application to the IT Unit that manages it.",
+    "Infrastructure": "Track physical or cloud infrastructure components like servers, networks, or storage systems. Assign them to an IT Unit and track costs and lifecycle dates.",
+    "IT Services": "Manage all internal services provided by your IT Units, such as the Help Desk or Classroom Support. You can track budget, FTEs, and service level details.",
+    "Dashboard": "Get a high-level visual overview of your portfolio. This dashboard highlights total costs, shows spending by vendor, and application distribution by IT Unit.",
+    "Settings": "Configure the dropdown options used throughout the application. Add or remove Vendors, Application Types, Categories, etc., to customize the forms to your needs.",
+    "Audit Log": "View a complete history of all changes made within the application. You can filter the log by user, item type, or date range to track activity.",
+    "Bulk Import": "Upload multiple records at once using a CSV file. Select the data type you wish to import, download the template, fill it in, and upload it here."
+}
+
+# --- UI HELPER FUNCTIONS ---
+@st.cache_data
+def convert_df_to_csv(df):
+    """Helper function to convert a DataFrame to a CSV string."""
+    return df.to_csv(index=False).encode('utf-8')
+
+# --- TAB RENDERING FUNCTIONS ---
+def render_it_units_tab(user_email):
+    st.header("Manage IT Units")
+    st.info(TAB_INSTRUCTIONS["IT Units"])
+
+    # (form for adding/editing omitted for clarity)
+
+    st.divider()
+
+    # Always get fresh IT Units
+    it_units_df_all = db.get_it_units()
+
+    # Allow searching
+    search_unit = st.text_input("Search IT Units by Name")
+    filtered_units_df = it_units_df_all
+    if search_unit:
+        filtered_units_df = it_units_df_all[
+            it_units_df_all['name'].str.contains(search_unit, case=False, na=False)
+        ]
+
+    st.subheader("All IT Units")
+
+    # Rename columns for clarity
+    display_df = filtered_units_df.rename(columns={
+        "name": "IT Unit",
+        "contact_person": "Contact",
+        "contact_email": "Email"
+    })
+
+    st.dataframe(display_df, width='stretch')
+
+    # Export same table
+    csv_units = convert_df_to_csv(display_df)
+    st.download_button(
+        label="Download data as CSV",
+        data=csv_units,
+        file_name='it_units_export.csv',
+        mime='text/csv'
+    )
+    
+    with st.expander("➕ Add New IT Unit"):
+        with st.form("add_unit_form", clear_on_submit=True):
+            st.write("Fields marked with an * are required.")
+            name = st.text_input("IT Unit Name*")
+            contact_person = st.text_input("Contact Person*")
+            contact_email = st.text_input("Contact Email")
+            total_fte = st.number_input("Total FTE", min_value=0, step=1)
+            budget_amount = st.number_input("Annual Budget ($)", min_value=0.0, format="%.2f")
+            notes = st.text_area("Notes", height=150)
+            
+            if st.form_submit_button("Add IT Unit"):
+                if not name or not contact_person:
+                    st.warning("Please fill in all required fields.")
+                else:
+                    result = db.add_it_unit(user_email, name, contact_person, contact_email, total_fte, budget_amount, notes)
+                    if isinstance(result, str):
+                        st.warning(result)
+                    else:
+                        st.rerun()
+    
+    st.divider()
+    it_units_df_all = db.get_it_units()
+
+    st.subheader("Edit or Delete an IT Unit")
+    
+    unit_options = dict(zip(filtered_units_df['id'], filtered_units_df['name']))
+    unit_to_edit_id = st.selectbox("Select an IT Unit", options=[None] + list(unit_options.keys()), format_func=lambda x: "---" if x is None else unit_options.get(x))
+
+    if unit_to_edit_id:
+        unit_details = db.get_it_unit_details(unit_to_edit_id)
+        if 'confirming_delete_unit' in st.session_state and st.session_state.confirming_delete_unit == unit_to_edit_id:
+            st.warning(f"**Are you sure you want to delete '{unit_details['name']}'?** This removes its association from any items.")
+            c1, c2 = st.columns(2)
+            if c1.button("Yes, delete it", key="confirm_del_unit"):
+                db.delete_it_unit(user_email, unit_to_edit_id, unit_details['name'])
+                st.session_state.pop('confirming_delete_unit', None)
+                st.success(f"Deleted IT Unit: {unit_details['name']}")
+                st.rerun()
+            if c2.button("Cancel", key="cancel_del_unit"):
+                st.session_state.pop('confirming_delete_unit', None)
+                st.rerun()
+
+        with st.form("edit_unit_form"):
+            st.write(f"**Editing: {unit_details['name']}** (Fields with * are required)")
+            name = st.text_input("IT Unit Name*", value=unit_details['name'])
+            contact_person = st.text_input("Contact Person*", value=unit_details.get('contact_person') or '')
+            contact_email = st.text_input("Contact Email", value=unit_details.get('contact_email') or '')
+            total_fte = st.number_input("Total FTE", min_value=0, step=1, value=int(unit_details.get('total_fte') or 0))
+            budget_amount = st.number_input("Annual Budget ($)", min_value=0.0, format="%.2f", value=float(unit_details.get('budget_amount') or 0.0))
+            notes = st.text_area("Notes", value=unit_details.get('notes') or '', height=150)
+            
+            del_col, save_col = st.columns([1, 6])
+            if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
+                if not name or not contact_person:
+                    st.warning("Please fill in all required fields.")
+                else:
+                    result = db.update_it_unit_details(user_email, unit_to_edit_id, name, contact_person, contact_email, total_fte, budget_amount, notes)
+                    if isinstance(result, str):
+                        st.warning(result)
+                    else:
+                        st.success(f"Updated details for {name}")
+                        st.rerun()
+            if del_col.form_submit_button("DELETE"):
+                st.session_state.confirming_delete_unit = unit_to_edit_id
+                st.rerun()
+
 def render_applications_tab(user_email):
     st.header("Manage Applications")
     st.info(TAB_INSTRUCTIONS["Applications"])
@@ -164,7 +295,9 @@ def render_applications_tab(user_email):
             if app_to_copy_id:
                 default_vals = db.get_application_details(app_to_copy_id)
 
+            # --- MODIFICATION: Checkboxes for Vendor and Category ---
             add_new_vendor_cb = st.checkbox("Add New Vendor", key="add_vendor_cb")
+            add_new_category_cb = st.checkbox("Add New Category", key="add_category_cb")
 
             with st.form("add_app_form", clear_on_submit=True):
                 st.write("Fields marked with an * are required.")
@@ -181,9 +314,13 @@ def render_applications_tab(user_email):
                     default_vendor_idx = vendor_keys.index(default_vals.get('vendor_id')) if default_vals.get('vendor_id') in vendor_keys else 0
                     st.selectbox("Vendor*", options=vendor_keys, format_func=vendor_options_all.get, index=default_vendor_idx, key="add_vendor_select")
                 
-                category_keys = list(category_options_all.keys())
-                default_cat_idx = category_keys.index(default_vals.get('category_id')) if default_vals.get('category_id') in category_keys else 0
-                category_id = st.selectbox("Category*", options=category_keys, format_func=category_options_all.get, index=default_cat_idx)
+                # --- MODIFICATION: Conditional input for Category ---
+                if add_new_category_cb:
+                    st.text_input("New Category Name*", key="add_category_name_input")
+                else:
+                    category_keys = list(category_options_all.keys())
+                    default_cat_idx = category_keys.index(default_vals.get('category_id')) if default_vals.get('category_id') in category_keys else 0
+                    st.selectbox("Category*", options=category_keys, format_func=category_options_all.get, index=default_cat_idx, key="add_category_select")
                 
                 status_options = ["Active", "In Development", "Sunsetting", "Retired"]
                 default_status = default_vals.get('status', 'Active')
@@ -203,28 +340,43 @@ def render_applications_tab(user_email):
                 similar_apps = st.text_area("Similar Applications (if any)", value=default_vals.get('similar_applications', ''))
                 
                 if st.form_submit_button("Save Application"):
-                    final_vendor_id = None
                     proceed = True
                     
+                    # --- Vendor ID Logic ---
+                    final_vendor_id = None
                     if add_new_vendor_cb:
                         new_vendor_name = st.session_state.get('add_vendor_name_input', '').strip()
                         if not new_vendor_name:
                             st.warning("New vendor name cannot be empty.")
                             proceed = False
                         elif new_vendor_name.lower() in [v.lower() for v in vendor_options_all.values()]:
-                            st.warning(f"Vendor '{new_vendor_name}' already exists. Please uncheck 'Add New Vendor' and select it from the list.")
+                            st.warning(f"Vendor '{new_vendor_name}' already exists.")
                             proceed = False
                         else:
-                            # --- MODIFICATION: Get the ID directly from the function ---
                             final_vendor_id = db.add_lookup_item(user_email, 'vendors', new_vendor_name)
                     else:
                         final_vendor_id = st.session_state.get('add_vendor_select')
                     
+                    # --- MODIFICATION: Category ID Logic ---
+                    final_category_id = None
+                    if add_new_category_cb:
+                        new_category_name = st.session_state.get('add_category_name_input', '').strip()
+                        if not new_category_name:
+                            st.warning("New category name cannot be empty.")
+                            proceed = False
+                        elif new_category_name.lower() in [c.lower() for c in category_options_all.values()]:
+                            st.warning(f"Category '{new_category_name}' already exists.")
+                            proceed = False
+                        else:
+                            final_category_id = db.add_lookup_item(user_email, 'categories', new_category_name)
+                    else:
+                        final_category_id = st.session_state.get('add_category_select')
+                    
                     if proceed:
-                        if not all([app_name, it_unit_id, final_vendor_id, category_id]):
+                        if not all([app_name, it_unit_id, final_vendor_id, final_category_id]):
                             st.warning("Please fill in all required fields.")
                         else:
-                            result = db.add_application(user_email, app_name, it_unit_id, final_vendor_id, category_id, service_type_id, annual_cost, str(renewal_date) if renewal_date else None, integrations, description, similar_apps, service_owner, status)
+                            result = db.add_application(user_email, app_name, it_unit_id, final_vendor_id, final_category_id, service_type_id, annual_cost, str(renewal_date) if renewal_date else None, integrations, description, similar_apps, service_owner, status)
                             if isinstance(result, str):
                                 st.warning(result)
                             else:
@@ -272,14 +424,16 @@ def render_applications_tab(user_email):
                 st.session_state.pop('confirming_delete_app', None)
                 st.rerun()
         
+        # --- MODIFICATION: Checkboxes for Vendor and Category in Edit form ---
         edit_add_new_vendor_cb = st.checkbox("Add New Vendor", key=f"edit_vendor_cb_{app_to_edit_id}")
+        edit_add_new_category_cb = st.checkbox("Add New Category", key=f"edit_category_cb_{app_to_edit_id}")
 
         with st.form(f"edit_app_form_{app_to_edit_id}"):
             st.write(f"**Editing: {app_details['name']}** (Fields with * are required)")
             edit_name = st.text_input("Application Name*", value=app_details['name'])
             
             default_unit_idx = list(it_unit_options_all.keys()).index(app_details['it_unit_id']) if app_details.get('it_unit_id') in it_unit_options_all else 0
-            edit_it_unit_id = st.selectbox("Managing IT Unit*", options=it_unit_options_all.keys(), format_func=it_unit_options_all.get, index=default_unit_idx)
+            edit_it_unit_id = st.selectbox("Managing IT Unit*", options=list(it_unit_options_all.keys()), format_func=it_unit_options_all.get, index=default_unit_idx)
             
             if edit_add_new_vendor_cb:
                 st.text_input("New Vendor Name*", key=f"edit_vendor_name_input_{app_to_edit_id}")
@@ -287,9 +441,13 @@ def render_applications_tab(user_email):
                 default_vendor_idx = list(vendor_options_all.keys()).index(app_details.get('vendor_id')) if app_details.get('vendor_id') in vendor_options_all else 0
                 st.selectbox("Vendor*", options=list(vendor_options_all.keys()), format_func=vendor_options_all.get, index=default_vendor_idx, key=f"edit_vendor_select_{app_to_edit_id}")
             
-            default_cat_idx = list(category_options_all.keys()).index(app_details['category_id']) if app_details.get('category_id') in category_options_all else 0
-            edit_category_id = st.selectbox("Category*", options=list(category_options_all.keys()), format_func=category_options_all.get, index=default_cat_idx)
-            
+            # --- MODIFICATION: Conditional input for Category in Edit form ---
+            if edit_add_new_category_cb:
+                st.text_input("New Category Name*", key=f"edit_category_name_input_{app_to_edit_id}")
+            else:
+                default_cat_idx = list(category_options_all.keys()).index(app_details['category_id']) if app_details.get('category_id') in category_options_all else 0
+                st.selectbox("Category*", options=list(category_options_all.keys()), format_func=category_options_all.get, index=default_cat_idx, key=f"edit_category_select_{app_to_edit_id}")
+
             status_options = ["Active", "In Development", "Sunsetting", "Retired"]
             edit_default_status = app_details.get('status', 'Active')
             edit_status_idx = status_options.index(edit_default_status) if edit_default_status in status_options else 0
@@ -308,28 +466,43 @@ def render_applications_tab(user_email):
 
             del_col, save_col = st.columns([1, 6])
             if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
-                final_edit_vendor_id = None
                 proceed = True
                 
+                # --- Vendor ID Logic ---
+                final_edit_vendor_id = None
                 if edit_add_new_vendor_cb:
                     edit_new_vendor_name = st.session_state.get(f"edit_vendor_name_input_{app_to_edit_id}", '').strip()
                     if not edit_new_vendor_name:
                         st.warning("New vendor name cannot be empty.")
                         proceed = False
                     elif edit_new_vendor_name.lower() in [v.lower() for v in vendor_options_all.values()]:
-                        st.warning(f"Vendor '{edit_new_vendor_name}' already exists. Please uncheck 'Add New Vendor' and select it from the list.")
+                        st.warning(f"Vendor '{edit_new_vendor_name}' already exists.")
                         proceed = False
                     else:
-                        # --- MODIFICATION: Get the ID directly from the function ---
                         final_edit_vendor_id = db.add_lookup_item(user_email, 'vendors', edit_new_vendor_name)
                 else:
                     final_edit_vendor_id = st.session_state.get(f"edit_vendor_select_{app_to_edit_id}")
                 
+                # --- MODIFICATION: Category ID Logic in Edit form ---
+                final_edit_category_id = None
+                if edit_add_new_category_cb:
+                    edit_new_category_name = st.session_state.get(f"edit_category_name_input_{app_to_edit_id}", '').strip()
+                    if not edit_new_category_name:
+                        st.warning("New category name cannot be empty.")
+                        proceed = False
+                    elif edit_new_category_name.lower() in [c.lower() for c in category_options_all.values()]:
+                        st.warning(f"Category '{edit_new_category_name}' already exists.")
+                        proceed = False
+                    else:
+                        final_edit_category_id = db.add_lookup_item(user_email, 'categories', edit_new_category_name)
+                else:
+                    final_edit_category_id = st.session_state.get(f"edit_category_select_{app_to_edit_id}")
+                
                 if proceed:
-                    if not all([edit_name, edit_it_unit_id, final_edit_vendor_id, edit_category_id]):
+                    if not all([edit_name, edit_it_unit_id, final_edit_vendor_id, final_edit_category_id]):
                         st.warning("Please fill in all required fields.")
                     else:
-                        result = db.update_application(user_email, app_to_edit_id, edit_name, edit_it_unit_id, final_edit_vendor_id, edit_category_id, edit_type_id, edit_annual_cost, str(edit_renewal) if edit_renewal else None, edit_integrations, edit_description, edit_similar_apps, edit_service_owner, edit_status)
+                        result = db.update_application(user_email, app_to_edit_id, edit_name, edit_it_unit_id, final_edit_vendor_id, final_edit_category_id, edit_type_id, edit_annual_cost, str(edit_renewal) if edit_renewal else None, edit_integrations, edit_description, edit_similar_apps, edit_service_owner, edit_status)
                         if isinstance(result, str):
                             st.warning(result)
                         else:
