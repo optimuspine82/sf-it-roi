@@ -216,11 +216,16 @@ def get_lookup_data(table_name):
     with get_connection() as con:
         return pd.read_sql_query(f"SELECT * FROM {table_name} ORDER BY name", con)
 
+# Replace the old add_lookup_item function with this one
+
 def add_lookup_item(user_email, table_name, name):
     with get_connection() as con:
-        con.execute(f"INSERT INTO {table_name} (name) VALUES (?)", (name,))
+        cur = con.cursor()  # <-- We need a cursor to get the ID
+        cur.execute(f"INSERT INTO {table_name} (name) VALUES (?)", (name,))
+        new_id = cur.lastrowid  # <-- Get the ID of the row we just inserted
         con.commit()
         log_change(user_email, "CREATE", f"Lookup: {table_name}", name)
+        return new_id  # <-- Return the new ID
 
 def update_lookup_item(user_email, table_name, item_id, new_name):
     with get_connection() as con:

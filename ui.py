@@ -129,6 +129,8 @@ def render_it_units_tab(user_email):
                 st.session_state.confirming_delete_unit = unit_to_edit_id
                 st.rerun()
 
+# Replace the entire render_applications_tab function in ui.py with this
+
 def render_applications_tab(user_email):
     st.header("Manage Applications")
     st.info(TAB_INSTRUCTIONS["Applications"])
@@ -162,6 +164,8 @@ def render_applications_tab(user_email):
             if app_to_copy_id:
                 default_vals = db.get_application_details(app_to_copy_id)
 
+            add_new_vendor_cb = st.checkbox("Add New Vendor", key="add_vendor_cb")
+
             with st.form("add_app_form", clear_on_submit=True):
                 st.write("Fields marked with an * are required.")
                 app_name = st.text_input("Application Name*", value=default_vals.get('name', ''))
@@ -170,9 +174,12 @@ def render_applications_tab(user_email):
                 default_unit_idx = unit_keys.index(default_vals.get('it_unit_id')) if default_vals.get('it_unit_id') in unit_keys else 0
                 it_unit_id = st.selectbox("Managing IT Unit*", options=unit_keys, format_func=it_unit_options_all.get, index=default_unit_idx)
                 
-                vendor_keys = list(vendor_options_all.keys())
-                default_vendor_idx = vendor_keys.index(default_vals.get('vendor_id')) if default_vals.get('vendor_id') in vendor_keys else 0
-                vendor_id = st.selectbox("Vendor*", options=vendor_keys, format_func=vendor_options_all.get, index=default_vendor_idx)
+                if add_new_vendor_cb:
+                    st.text_input("New Vendor Name*", key="add_vendor_name_input")
+                else:
+                    vendor_keys = list(vendor_options_all.keys())
+                    default_vendor_idx = vendor_keys.index(default_vals.get('vendor_id')) if default_vals.get('vendor_id') in vendor_keys else 0
+                    st.selectbox("Vendor*", options=vendor_keys, format_func=vendor_options_all.get, index=default_vendor_idx, key="add_vendor_select")
                 
                 category_keys = list(category_options_all.keys())
                 default_cat_idx = category_keys.index(default_vals.get('category_id')) if default_vals.get('category_id') in category_keys else 0
@@ -196,15 +203,33 @@ def render_applications_tab(user_email):
                 similar_apps = st.text_area("Similar Applications (if any)", value=default_vals.get('similar_applications', ''))
                 
                 if st.form_submit_button("Save Application"):
-                    if not all([app_name, it_unit_id, vendor_id, category_id]):
-                        st.warning("Please fill in all required fields.")
-                    else:
-                        result = db.add_application(user_email, app_name, it_unit_id, vendor_id, category_id, service_type_id, annual_cost, str(renewal_date) if renewal_date else None, integrations, description, similar_apps, service_owner, status)
-                        if isinstance(result, str):
-                            st.warning(result)
+                    final_vendor_id = None
+                    proceed = True
+                    
+                    if add_new_vendor_cb:
+                        new_vendor_name = st.session_state.get('add_vendor_name_input', '').strip()
+                        if not new_vendor_name:
+                            st.warning("New vendor name cannot be empty.")
+                            proceed = False
+                        elif new_vendor_name.lower() in [v.lower() for v in vendor_options_all.values()]:
+                            st.warning(f"Vendor '{new_vendor_name}' already exists. Please uncheck 'Add New Vendor' and select it from the list.")
+                            proceed = False
                         else:
-                            st.rerun()
-
+                            # --- MODIFICATION: Get the ID directly from the function ---
+                            final_vendor_id = db.add_lookup_item(user_email, 'vendors', new_vendor_name)
+                    else:
+                        final_vendor_id = st.session_state.get('add_vendor_select')
+                    
+                    if proceed:
+                        if not all([app_name, it_unit_id, final_vendor_id, category_id]):
+                            st.warning("Please fill in all required fields.")
+                        else:
+                            result = db.add_application(user_email, app_name, it_unit_id, final_vendor_id, category_id, service_type_id, annual_cost, str(renewal_date) if renewal_date else None, integrations, description, similar_apps, service_owner, status)
+                            if isinstance(result, str):
+                                st.warning(result)
+                            else:
+                                st.rerun()
+                                
     st.divider()
     st.subheader("Filter and Search Applications")
     fcol1, fcol2, fcol3, fcol4 = st.columns(4)
@@ -247,6 +272,8 @@ def render_applications_tab(user_email):
                 st.session_state.pop('confirming_delete_app', None)
                 st.rerun()
         
+        edit_add_new_vendor_cb = st.checkbox("Add New Vendor", key=f"edit_vendor_cb_{app_to_edit_id}")
+
         with st.form(f"edit_app_form_{app_to_edit_id}"):
             st.write(f"**Editing: {app_details['name']}** (Fields with * are required)")
             edit_name = st.text_input("Application Name*", value=app_details['name'])
@@ -254,8 +281,11 @@ def render_applications_tab(user_email):
             default_unit_idx = list(it_unit_options_all.keys()).index(app_details['it_unit_id']) if app_details.get('it_unit_id') in it_unit_options_all else 0
             edit_it_unit_id = st.selectbox("Managing IT Unit*", options=it_unit_options_all.keys(), format_func=it_unit_options_all.get, index=default_unit_idx)
             
-            default_vendor_idx = list(vendor_options_all.keys()).index(app_details.get('vendor_id')) if app_details.get('vendor_id') in vendor_options_all else 0
-            edit_vendor_id = st.selectbox("Vendor*", options=list(vendor_options_all.keys()), format_func=vendor_options_all.get, index=default_vendor_idx)
+            if edit_add_new_vendor_cb:
+                st.text_input("New Vendor Name*", key=f"edit_vendor_name_input_{app_to_edit_id}")
+            else:
+                default_vendor_idx = list(vendor_options_all.keys()).index(app_details.get('vendor_id')) if app_details.get('vendor_id') in vendor_options_all else 0
+                st.selectbox("Vendor*", options=list(vendor_options_all.keys()), format_func=vendor_options_all.get, index=default_vendor_idx, key=f"edit_vendor_select_{app_to_edit_id}")
             
             default_cat_idx = list(category_options_all.keys()).index(app_details['category_id']) if app_details.get('category_id') in category_options_all else 0
             edit_category_id = st.selectbox("Category*", options=list(category_options_all.keys()), format_func=category_options_all.get, index=default_cat_idx)
@@ -278,15 +308,34 @@ def render_applications_tab(user_email):
 
             del_col, save_col = st.columns([1, 6])
             if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
-                if not all([edit_name, edit_it_unit_id, edit_vendor_id, edit_category_id]):
-                    st.warning("Please fill in all required fields.")
-                else:
-                    result = db.update_application(user_email, app_to_edit_id, edit_name, edit_it_unit_id, edit_vendor_id, edit_category_id, edit_type_id, edit_annual_cost, str(edit_renewal) if edit_renewal else None, edit_integrations, edit_description, edit_similar_apps, edit_service_owner, edit_status)
-                    if isinstance(result, str):
-                        st.warning(result)
+                final_edit_vendor_id = None
+                proceed = True
+                
+                if edit_add_new_vendor_cb:
+                    edit_new_vendor_name = st.session_state.get(f"edit_vendor_name_input_{app_to_edit_id}", '').strip()
+                    if not edit_new_vendor_name:
+                        st.warning("New vendor name cannot be empty.")
+                        proceed = False
+                    elif edit_new_vendor_name.lower() in [v.lower() for v in vendor_options_all.values()]:
+                        st.warning(f"Vendor '{edit_new_vendor_name}' already exists. Please uncheck 'Add New Vendor' and select it from the list.")
+                        proceed = False
                     else:
-                        st.success("Application updated.")
-                        st.rerun()
+                        # --- MODIFICATION: Get the ID directly from the function ---
+                        final_edit_vendor_id = db.add_lookup_item(user_email, 'vendors', edit_new_vendor_name)
+                else:
+                    final_edit_vendor_id = st.session_state.get(f"edit_vendor_select_{app_to_edit_id}")
+                
+                if proceed:
+                    if not all([edit_name, edit_it_unit_id, final_edit_vendor_id, edit_category_id]):
+                        st.warning("Please fill in all required fields.")
+                    else:
+                        result = db.update_application(user_email, app_to_edit_id, edit_name, edit_it_unit_id, final_edit_vendor_id, edit_category_id, edit_type_id, edit_annual_cost, str(edit_renewal) if edit_renewal else None, edit_integrations, edit_description, edit_similar_apps, edit_service_owner, edit_status)
+                        if isinstance(result, str):
+                            st.warning(result)
+                        else:
+                            st.success("Application updated.")
+                            st.rerun()
+
             if del_col.form_submit_button("DELETE"):
                 st.session_state.confirming_delete_app = app_to_edit_id
                 st.rerun()
