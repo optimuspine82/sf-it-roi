@@ -8,7 +8,7 @@ import database as db
 # --- UI CONSTANTS ---
 TAB_INSTRUCTIONS = {
     "IT Units": "Manage the internal IT teams or departments responsible for applications and services. You can add new units, edit their contact and budget information, or delete them here.",
-    "Applications": "Track all software applications, whether they are developed internally or purchased from an external vendor. Link each application to the IT Unit that manages it.",
+    "Applications": "Track all software applications, whether they are developed internally or purchased from an external vendor. Link each application to the IT Unit that manages it. If the vendor or category you need hasn't been created yet, you can quick add it using the checkboxes below or add them under the settings tab. Your work is preserved between switching tabs.",
     "Infrastructure": "Track physical or cloud infrastructure components like servers, networks, or storage systems. Assign them to an IT Unit and track costs and lifecycle dates.",
     "IT Services": "Manage all internal services provided by your IT Units, such as the Help Desk or Classroom Support. You can track budget, FTEs, and service level details.",
     "Dashboard": "Get a high-level visual overview of your portfolio. This dashboard highlights total costs, shows spending by vendor, and application distribution by IT Unit.",
