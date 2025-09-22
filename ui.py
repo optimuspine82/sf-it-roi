@@ -28,7 +28,6 @@ def render_it_units_tab(user_email):
     st.header("Manage IT Units")
     st.info(TAB_INSTRUCTIONS["IT Units"])
 
-    # --- MODIFICATION: "Add New" section moved to the top ---
     with st.expander("➕ Add New IT Unit"):
         with st.form("add_unit_form", clear_on_submit=True):
             st.write("Fields marked with an * are required.")
@@ -51,7 +50,6 @@ def render_it_units_tab(user_email):
     
     st.divider()
 
-    # --- View, Search, Edit, and Delete sections ---
     it_units_df_all = db.get_it_units()
 
     st.subheader("Existing IT Units")
@@ -68,7 +66,8 @@ def render_it_units_tab(user_email):
         "contact_email": "Email"
     })
 
-    st.dataframe(display_df, use_container_width=True)
+    # --- MODIFICATION: Replaced use_container_width ---
+    st.dataframe(display_df, width='stretch')
 
     csv_units = convert_df_to_csv(display_df)
     st.download_button(
@@ -109,7 +108,8 @@ def render_it_units_tab(user_email):
             notes = st.text_area("Notes", value=unit_details.get('notes') or '', height=150)
             
             del_col, save_col = st.columns([1, 6])
-            if save_col.form_submit_button("Save Changes", use_container_width=True, type="primary"):
+            # --- MODIFICATION: Replaced use_container_width ---
+            if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
                 if not name or not contact_person:
                     st.warning("Please fill in all required fields.")
                 else:
@@ -255,7 +255,8 @@ def render_applications_tab(user_email):
     if filter_vendor: filtered_apps_df = filtered_apps_df[filtered_apps_df['vendor'].isin(filter_vendor)]
     if filter_category: filtered_apps_df = filtered_apps_df[filtered_apps_df['category'].isin(filter_category)]
 
-    st.dataframe(filtered_apps_df, use_container_width=True)
+    # --- MODIFICATION: Replaced use_container_width ---
+    st.dataframe(filtered_apps_df, width='stretch')
     csv_apps = convert_df_to_csv(filtered_apps_df)
     st.download_button(label="Download data as CSV", data=csv_apps, file_name='applications_export.csv', mime='text/csv')
 
@@ -320,7 +321,8 @@ def render_applications_tab(user_email):
             edit_similar_apps = st.text_area("Similar Applications", value=app_details.get('similar_applications') or '')
 
             del_col, save_col = st.columns([1, 6])
-            if save_col.form_submit_button("Save Changes", use_container_width=True, type="primary"):
+            # --- MODIFICATION: Replaced use_container_width ---
+            if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
                 proceed = True
                 
                 final_edit_vendor_id = None
@@ -437,7 +439,8 @@ def render_infrastructure_tab(user_email):
     if filter_infra_vendor: filtered_infra_df = filtered_infra_df[filtered_infra_df['vendor'].isin(filter_infra_vendor)]
     if filter_infra_status: filtered_infra_df = filtered_infra_df[filtered_infra_df['status'].isin(filter_infra_status)]
     
-    st.dataframe(filtered_infra_df, use_container_width=True)
+    # --- MODIFICATION: Replaced use_container_width ---
+    st.dataframe(filtered_infra_df, width='stretch')
     csv_infra = convert_df_to_csv(filtered_infra_df)
     st.download_button(label="Download data as CSV", data=csv_infra, file_name='infrastructure_export.csv', mime='text/csv')
 
@@ -478,7 +481,8 @@ def render_infrastructure_tab(user_email):
             edit_description = st.text_area("Description", value=infra_details.get('description') or '')
 
             del_col, save_col = st.columns([1, 6])
-            if save_col.form_submit_button("Save Changes", use_container_width=True, type="primary"):
+            # --- MODIFICATION: Replaced use_container_width ---
+            if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
                 if not edit_name or not edit_it_unit_id:
                     st.warning("Please fill in all required fields.")
                 else:
@@ -570,7 +574,8 @@ def render_services_tab(user_email):
     if filter_status_its: filtered_its_df = filtered_its_df[filtered_its_df['status'].isin(filter_status_its)]
     if filter_sla_its: filtered_its_df = filtered_its_df[filtered_its_df['sla_level'].isin(filter_sla_its)]
 
-    st.dataframe(filtered_its_df, use_container_width=True)
+    # --- MODIFICATION: Replaced use_container_width ---
+    st.dataframe(filtered_its_df, width='stretch')
     csv_its = convert_df_to_csv(filtered_its_df)
     st.download_button(label="Download data as CSV", data=csv_its, file_name='it_services_export.csv', mime='text/csv')
     
@@ -618,7 +623,8 @@ def render_services_tab(user_email):
             edit_dependencies = st.text_area("Dependencies", value=it_service_details.get('dependencies') or '')
 
             del_col, save_col = st.columns([1, 6])
-            if save_col.form_submit_button("Save Changes", use_container_width=True, type="primary"):
+            # --- MODIFICATION: Replaced use_container_width ---
+            if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
                 if not edit_it_name or not edit_it_unit_id:
                     st.warning("Please fill in all required fields.")
                 else:
@@ -661,7 +667,8 @@ def render_dashboard_tab():
         app_duplicates = all_apps_df[all_apps_df.duplicated(subset=['name'], keep=False)].sort_values(by='name')
         if not app_duplicates.empty:
             st.warning("Duplicate Applications Found Across IT Units")
-            st.dataframe(app_duplicates[['name', 'managing_it_unit', 'vendor', 'annual_cost']], use_container_width=True)
+            # --- MODIFICATION: Replaced use_container_width ---
+            st.dataframe(app_duplicates[['name', 'managing_it_unit', 'vendor', 'annual_cost']], width='stretch')
         else:
             st.success("No duplicate application names found.")
     
@@ -669,7 +676,8 @@ def render_dashboard_tab():
         service_duplicates = all_it_services_df[all_it_services_df.duplicated(subset=['name'], keep=False)].sort_values(by='name')
         if not service_duplicates.empty:
             st.warning("Duplicate IT Services Found Across IT Units")
-            st.dataframe(service_duplicates[['name', 'providing_it_unit', 'budget_allocation', 'fte_count']], use_container_width=True)
+            # --- MODIFICATION: Replaced use_container_width ---
+            st.dataframe(service_duplicates[['name', 'providing_it_unit', 'budget_allocation', 'fte_count']], width='stretch')
         else:
             st.success("No duplicate IT service names found.")
     
@@ -679,7 +687,8 @@ def render_dashboard_tab():
 
         if not category_duplicates.empty:
             st.warning("Overlapping Application Categories Found")
-            st.dataframe(category_duplicates[['category', 'name', 'managing_it_unit', 'vendor']], use_container_width=True)
+            # --- MODIFICATION: Replaced use_container_width ---
+            st.dataframe(category_duplicates[['category', 'name', 'managing_it_unit', 'vendor']], width='stretch')
         else:
             st.success("No overlapping application categories found.")
 
@@ -842,7 +851,8 @@ def render_audit_tab():
             (filtered_log_df['timestamp'].dt.date <= end_date)
         ]
 
-    st.dataframe(filtered_log_df, use_container_width=True)
+    # --- MODIFICATION: Replaced use_container_width ---
+    st.dataframe(filtered_log_df, width='stretch')
     
     csv_audit = convert_df_to_csv(filtered_log_df)
     st.download_button(
