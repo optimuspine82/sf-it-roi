@@ -28,41 +28,7 @@ def render_it_units_tab(user_email):
     st.header("Manage IT Units")
     st.info(TAB_INSTRUCTIONS["IT Units"])
 
-    # (form for adding/editing omitted for clarity)
-
-    st.divider()
-
-    # Always get fresh IT Units
-    it_units_df_all = db.get_it_units()
-
-    # Allow searching
-    search_unit = st.text_input("Search IT Units by Name")
-    filtered_units_df = it_units_df_all
-    if search_unit:
-        filtered_units_df = it_units_df_all[
-            it_units_df_all['name'].str.contains(search_unit, case=False, na=False)
-        ]
-
-    st.subheader("All IT Units")
-
-    # Rename columns for clarity
-    display_df = filtered_units_df.rename(columns={
-        "name": "IT Unit",
-        "contact_person": "Contact",
-        "contact_email": "Email"
-    })
-
-    st.dataframe(display_df, width='stretch')
-
-    # Export same table
-    csv_units = convert_df_to_csv(display_df)
-    st.download_button(
-        label="Download data as CSV",
-        data=csv_units,
-        file_name='it_units_export.csv',
-        mime='text/csv'
-    )
-    
+    # --- MODIFICATION: "Add New" section moved to the top ---
     with st.expander("➕ Add New IT Unit"):
         with st.form("add_unit_form", clear_on_submit=True):
             st.write("Fields marked with an * are required.")
@@ -84,8 +50,36 @@ def render_it_units_tab(user_email):
                         st.rerun()
     
     st.divider()
+
+    # --- View, Search, Edit, and Delete sections ---
     it_units_df_all = db.get_it_units()
 
+    st.subheader("Existing IT Units")
+    search_unit = st.text_input("Search IT Units by Name")
+    filtered_units_df = it_units_df_all
+    if search_unit:
+        filtered_units_df = it_units_df_all[
+            it_units_df_all['name'].str.contains(search_unit, case=False, na=False)
+        ]
+
+    display_df = filtered_units_df.rename(columns={
+        "name": "IT Unit",
+        "contact_person": "Contact",
+        "contact_email": "Email"
+    })
+
+    st.dataframe(display_df, use_container_width=True)
+
+    csv_units = convert_df_to_csv(display_df)
+    st.download_button(
+        label="Download data as CSV",
+        data=csv_units,
+        file_name='it_units_export.csv',
+        mime='text/csv'
+    )
+    
+    st.divider()
+    
     st.subheader("Edit or Delete an IT Unit")
     
     unit_options = dict(zip(filtered_units_df['id'], filtered_units_df['name']))
@@ -115,140 +109,7 @@ def render_it_units_tab(user_email):
             notes = st.text_area("Notes", value=unit_details.get('notes') or '', height=150)
             
             del_col, save_col = st.columns([1, 6])
-            if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
-                if not name or not contact_person:
-                    st.warning("Please fill in all required fields.")
-                else:
-                    result = db.update_it_unit_details(user_email, unit_to_edit_id, name, contact_person, contact_email, total_fte, budget_amount, notes)
-                    if isinstance(result, str):
-                        st.warning(result)
-                    else:
-                        st.success(f"Updated details for {name}")
-                        st.rerun()
-            if del_col.form_submit_button("DELETE"):
-                st.session_state.confirming_delete_unit = unit_to_edit_id
-                st.rerun()
-
-# Replace the entire render_applications_tab function in ui.py with this
-
-# ui.py
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-import datetime
-import database as db
-
-# --- UI CONSTANTS ---
-TAB_INSTRUCTIONS = {
-    "IT Units": "Manage the internal IT teams or departments responsible for applications and services. You can add new units, edit their contact and budget information, or delete them here.",
-    "Applications": "Track all software applications, whether they are developed internally or purchased from an external vendor. Link each application to the IT Unit that manages it.",
-    "Infrastructure": "Track physical or cloud infrastructure components like servers, networks, or storage systems. Assign them to an IT Unit and track costs and lifecycle dates.",
-    "IT Services": "Manage all internal services provided by your IT Units, such as the Help Desk or Classroom Support. You can track budget, FTEs, and service level details.",
-    "Dashboard": "Get a high-level visual overview of your portfolio. This dashboard highlights total costs, shows spending by vendor, and application distribution by IT Unit.",
-    "Settings": "Configure the dropdown options used throughout the application. Add or remove Vendors, Application Types, Categories, etc., to customize the forms to your needs.",
-    "Audit Log": "View a complete history of all changes made within the application. You can filter the log by user, item type, or date range to track activity.",
-    "Bulk Import": "Upload multiple records at once using a CSV file. Select the data type you wish to import, download the template, fill it in, and upload it here."
-}
-
-# --- UI HELPER FUNCTIONS ---
-@st.cache_data
-def convert_df_to_csv(df):
-    """Helper function to convert a DataFrame to a CSV string."""
-    return df.to_csv(index=False).encode('utf-8')
-
-# --- TAB RENDERING FUNCTIONS ---
-def render_it_units_tab(user_email):
-    st.header("Manage IT Units")
-    st.info(TAB_INSTRUCTIONS["IT Units"])
-
-    # (form for adding/editing omitted for clarity)
-
-    st.divider()
-
-    # Always get fresh IT Units
-    it_units_df_all = db.get_it_units()
-
-    # Allow searching
-    search_unit = st.text_input("Search IT Units by Name")
-    filtered_units_df = it_units_df_all
-    if search_unit:
-        filtered_units_df = it_units_df_all[
-            it_units_df_all['name'].str.contains(search_unit, case=False, na=False)
-        ]
-
-    st.subheader("All IT Units")
-
-    # Rename columns for clarity
-    display_df = filtered_units_df.rename(columns={
-        "name": "IT Unit",
-        "contact_person": "Contact",
-        "contact_email": "Email"
-    })
-
-    st.dataframe(display_df, width='stretch')
-
-    # Export same table
-    csv_units = convert_df_to_csv(display_df)
-    st.download_button(
-        label="Download data as CSV",
-        data=csv_units,
-        file_name='it_units_export.csv',
-        mime='text/csv'
-    )
-    
-    with st.expander("➕ Add New IT Unit"):
-        with st.form("add_unit_form", clear_on_submit=True):
-            st.write("Fields marked with an * are required.")
-            name = st.text_input("IT Unit Name*")
-            contact_person = st.text_input("Contact Person*")
-            contact_email = st.text_input("Contact Email")
-            total_fte = st.number_input("Total FTE", min_value=0, step=1)
-            budget_amount = st.number_input("Annual Budget ($)", min_value=0.0, format="%.2f")
-            notes = st.text_area("Notes", height=150)
-            
-            if st.form_submit_button("Add IT Unit"):
-                if not name or not contact_person:
-                    st.warning("Please fill in all required fields.")
-                else:
-                    result = db.add_it_unit(user_email, name, contact_person, contact_email, total_fte, budget_amount, notes)
-                    if isinstance(result, str):
-                        st.warning(result)
-                    else:
-                        st.rerun()
-    
-    st.divider()
-    it_units_df_all = db.get_it_units()
-
-    st.subheader("Edit or Delete an IT Unit")
-    
-    unit_options = dict(zip(filtered_units_df['id'], filtered_units_df['name']))
-    unit_to_edit_id = st.selectbox("Select an IT Unit", options=[None] + list(unit_options.keys()), format_func=lambda x: "---" if x is None else unit_options.get(x))
-
-    if unit_to_edit_id:
-        unit_details = db.get_it_unit_details(unit_to_edit_id)
-        if 'confirming_delete_unit' in st.session_state and st.session_state.confirming_delete_unit == unit_to_edit_id:
-            st.warning(f"**Are you sure you want to delete '{unit_details['name']}'?** This removes its association from any items.")
-            c1, c2 = st.columns(2)
-            if c1.button("Yes, delete it", key="confirm_del_unit"):
-                db.delete_it_unit(user_email, unit_to_edit_id, unit_details['name'])
-                st.session_state.pop('confirming_delete_unit', None)
-                st.success(f"Deleted IT Unit: {unit_details['name']}")
-                st.rerun()
-            if c2.button("Cancel", key="cancel_del_unit"):
-                st.session_state.pop('confirming_delete_unit', None)
-                st.rerun()
-
-        with st.form("edit_unit_form"):
-            st.write(f"**Editing: {unit_details['name']}** (Fields with * are required)")
-            name = st.text_input("IT Unit Name*", value=unit_details['name'])
-            contact_person = st.text_input("Contact Person*", value=unit_details.get('contact_person') or '')
-            contact_email = st.text_input("Contact Email", value=unit_details.get('contact_email') or '')
-            total_fte = st.number_input("Total FTE", min_value=0, step=1, value=int(unit_details.get('total_fte') or 0))
-            budget_amount = st.number_input("Annual Budget ($)", min_value=0.0, format="%.2f", value=float(unit_details.get('budget_amount') or 0.0))
-            notes = st.text_area("Notes", value=unit_details.get('notes') or '', height=150)
-            
-            del_col, save_col = st.columns([1, 6])
-            if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
+            if save_col.form_submit_button("Save Changes", use_container_width=True, type="primary"):
                 if not name or not contact_person:
                     st.warning("Please fill in all required fields.")
                 else:
@@ -295,7 +156,6 @@ def render_applications_tab(user_email):
             if app_to_copy_id:
                 default_vals = db.get_application_details(app_to_copy_id)
 
-            # --- MODIFICATION: Checkboxes for Vendor and Category ---
             add_new_vendor_cb = st.checkbox("Add New Vendor", key="add_vendor_cb")
             add_new_category_cb = st.checkbox("Add New Category", key="add_category_cb")
 
@@ -314,7 +174,6 @@ def render_applications_tab(user_email):
                     default_vendor_idx = vendor_keys.index(default_vals.get('vendor_id')) if default_vals.get('vendor_id') in vendor_keys else 0
                     st.selectbox("Vendor*", options=vendor_keys, format_func=vendor_options_all.get, index=default_vendor_idx, key="add_vendor_select")
                 
-                # --- MODIFICATION: Conditional input for Category ---
                 if add_new_category_cb:
                     st.text_input("New Category Name*", key="add_category_name_input")
                 else:
@@ -342,7 +201,6 @@ def render_applications_tab(user_email):
                 if st.form_submit_button("Save Application"):
                     proceed = True
                     
-                    # --- Vendor ID Logic ---
                     final_vendor_id = None
                     if add_new_vendor_cb:
                         new_vendor_name = st.session_state.get('add_vendor_name_input', '').strip()
@@ -357,7 +215,6 @@ def render_applications_tab(user_email):
                     else:
                         final_vendor_id = st.session_state.get('add_vendor_select')
                     
-                    # --- MODIFICATION: Category ID Logic ---
                     final_category_id = None
                     if add_new_category_cb:
                         new_category_name = st.session_state.get('add_category_name_input', '').strip()
@@ -398,7 +255,7 @@ def render_applications_tab(user_email):
     if filter_vendor: filtered_apps_df = filtered_apps_df[filtered_apps_df['vendor'].isin(filter_vendor)]
     if filter_category: filtered_apps_df = filtered_apps_df[filtered_apps_df['category'].isin(filter_category)]
 
-    st.dataframe(filtered_apps_df, width='stretch')
+    st.dataframe(filtered_apps_df, use_container_width=True)
     csv_apps = convert_df_to_csv(filtered_apps_df)
     st.download_button(label="Download data as CSV", data=csv_apps, file_name='applications_export.csv', mime='text/csv')
 
@@ -424,7 +281,6 @@ def render_applications_tab(user_email):
                 st.session_state.pop('confirming_delete_app', None)
                 st.rerun()
         
-        # --- MODIFICATION: Checkboxes for Vendor and Category in Edit form ---
         edit_add_new_vendor_cb = st.checkbox("Add New Vendor", key=f"edit_vendor_cb_{app_to_edit_id}")
         edit_add_new_category_cb = st.checkbox("Add New Category", key=f"edit_category_cb_{app_to_edit_id}")
 
@@ -441,7 +297,6 @@ def render_applications_tab(user_email):
                 default_vendor_idx = list(vendor_options_all.keys()).index(app_details.get('vendor_id')) if app_details.get('vendor_id') in vendor_options_all else 0
                 st.selectbox("Vendor*", options=list(vendor_options_all.keys()), format_func=vendor_options_all.get, index=default_vendor_idx, key=f"edit_vendor_select_{app_to_edit_id}")
             
-            # --- MODIFICATION: Conditional input for Category in Edit form ---
             if edit_add_new_category_cb:
                 st.text_input("New Category Name*", key=f"edit_category_name_input_{app_to_edit_id}")
             else:
@@ -465,10 +320,9 @@ def render_applications_tab(user_email):
             edit_similar_apps = st.text_area("Similar Applications", value=app_details.get('similar_applications') or '')
 
             del_col, save_col = st.columns([1, 6])
-            if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
+            if save_col.form_submit_button("Save Changes", use_container_width=True, type="primary"):
                 proceed = True
                 
-                # --- Vendor ID Logic ---
                 final_edit_vendor_id = None
                 if edit_add_new_vendor_cb:
                     edit_new_vendor_name = st.session_state.get(f"edit_vendor_name_input_{app_to_edit_id}", '').strip()
@@ -483,7 +337,6 @@ def render_applications_tab(user_email):
                 else:
                     final_edit_vendor_id = st.session_state.get(f"edit_vendor_select_{app_to_edit_id}")
                 
-                # --- MODIFICATION: Category ID Logic in Edit form ---
                 final_edit_category_id = None
                 if edit_add_new_category_cb:
                     edit_new_category_name = st.session_state.get(f"edit_category_name_input_{app_to_edit_id}", '').strip()
@@ -584,7 +437,7 @@ def render_infrastructure_tab(user_email):
     if filter_infra_vendor: filtered_infra_df = filtered_infra_df[filtered_infra_df['vendor'].isin(filter_infra_vendor)]
     if filter_infra_status: filtered_infra_df = filtered_infra_df[filtered_infra_df['status'].isin(filter_infra_status)]
     
-    st.dataframe(filtered_infra_df, width='stretch')
+    st.dataframe(filtered_infra_df, use_container_width=True)
     csv_infra = convert_df_to_csv(filtered_infra_df)
     st.download_button(label="Download data as CSV", data=csv_infra, file_name='infrastructure_export.csv', mime='text/csv')
 
@@ -625,7 +478,7 @@ def render_infrastructure_tab(user_email):
             edit_description = st.text_area("Description", value=infra_details.get('description') or '')
 
             del_col, save_col = st.columns([1, 6])
-            if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
+            if save_col.form_submit_button("Save Changes", use_container_width=True, type="primary"):
                 if not edit_name or not edit_it_unit_id:
                     st.warning("Please fill in all required fields.")
                 else:
@@ -717,7 +570,7 @@ def render_services_tab(user_email):
     if filter_status_its: filtered_its_df = filtered_its_df[filtered_its_df['status'].isin(filter_status_its)]
     if filter_sla_its: filtered_its_df = filtered_its_df[filtered_its_df['sla_level'].isin(filter_sla_its)]
 
-    st.dataframe(filtered_its_df, width='stretch')
+    st.dataframe(filtered_its_df, use_container_width=True)
     csv_its = convert_df_to_csv(filtered_its_df)
     st.download_button(label="Download data as CSV", data=csv_its, file_name='it_services_export.csv', mime='text/csv')
     
@@ -765,7 +618,7 @@ def render_services_tab(user_email):
             edit_dependencies = st.text_area("Dependencies", value=it_service_details.get('dependencies') or '')
 
             del_col, save_col = st.columns([1, 6])
-            if save_col.form_submit_button("Save Changes", width='stretch', type="primary"):
+            if save_col.form_submit_button("Save Changes", use_container_width=True, type="primary"):
                 if not edit_it_name or not edit_it_unit_id:
                     st.warning("Please fill in all required fields.")
                 else:
@@ -808,7 +661,7 @@ def render_dashboard_tab():
         app_duplicates = all_apps_df[all_apps_df.duplicated(subset=['name'], keep=False)].sort_values(by='name')
         if not app_duplicates.empty:
             st.warning("Duplicate Applications Found Across IT Units")
-            st.dataframe(app_duplicates[['name', 'managing_it_unit', 'vendor', 'annual_cost']], width='stretch')
+            st.dataframe(app_duplicates[['name', 'managing_it_unit', 'vendor', 'annual_cost']], use_container_width=True)
         else:
             st.success("No duplicate application names found.")
     
@@ -816,7 +669,7 @@ def render_dashboard_tab():
         service_duplicates = all_it_services_df[all_it_services_df.duplicated(subset=['name'], keep=False)].sort_values(by='name')
         if not service_duplicates.empty:
             st.warning("Duplicate IT Services Found Across IT Units")
-            st.dataframe(service_duplicates[['name', 'providing_it_unit', 'budget_allocation', 'fte_count']], width='stretch')
+            st.dataframe(service_duplicates[['name', 'providing_it_unit', 'budget_allocation', 'fte_count']], use_container_width=True)
         else:
             st.success("No duplicate IT service names found.")
     
@@ -826,7 +679,7 @@ def render_dashboard_tab():
 
         if not category_duplicates.empty:
             st.warning("Overlapping Application Categories Found")
-            st.dataframe(category_duplicates[['category', 'name', 'managing_it_unit', 'vendor']], width='stretch')
+            st.dataframe(category_duplicates[['category', 'name', 'managing_it_unit', 'vendor']], use_container_width=True)
         else:
             st.success("No overlapping application categories found.")
 
@@ -989,7 +842,7 @@ def render_audit_tab():
             (filtered_log_df['timestamp'].dt.date <= end_date)
         ]
 
-    st.dataframe(filtered_log_df, width='stretch')
+    st.dataframe(filtered_log_df, use_container_width=True)
     
     csv_audit = convert_df_to_csv(filtered_log_df)
     st.download_button(
